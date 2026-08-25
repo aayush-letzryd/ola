@@ -25,7 +25,9 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-env_path = Path(r"C:\Users\anura\RYD\letzryd-ola-integration\.env")
+env_path = Path(__file__).parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
 def get_db_connection():

@@ -11,9 +11,12 @@ import os
 from datetime import datetime
 from typing import Tuple, Optional
 from google.cloud import storage
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+env_path = Path(__file__).parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 DEFAULT_BUCKET = os.environ.get("GCS_BUCKET_NAME", "letzryd-ola-raw-statements")
 

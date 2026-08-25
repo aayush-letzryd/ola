@@ -36,14 +36,16 @@ from pathlib import Path
 from typing import Optional, Tuple
 from dotenv import load_dotenv
 
-env_path = Path(r"C:\Users\anura\RYD\letzryd-ola-integration\.env")
+env_path = Path(__file__).parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
 from hybrid_fetch_ola import download_statement_hybrid
 from gcs_upload import upload_statement_to_gcs
 from load_ola_to_postgres import load_ola_statement_to_postgres, run_tuesday_audit_reconciliation
 
-DOWNLOAD_DIR = Path(r"C:\Users\anura\RYD\letzryd-ola-integration\ola_downloads")
+DOWNLOAD_DIR = Path(__file__).parent / "ola_downloads"
 ARCHIVE_DIR = DOWNLOAD_DIR / "archive"
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 

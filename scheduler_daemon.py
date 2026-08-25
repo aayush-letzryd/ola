@@ -24,7 +24,7 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 PYTHON_EXE = sys.executable
-PIPELINE_SCRIPT = Path(r"C:\Users\anura\RYD\letzryd-ola-integration\ola_master_pipeline.py")
+PIPELINE_SCRIPT = Path(__file__).parent / "ola_master_pipeline.py"
 
 DAILY_RUN_TIME = os.environ.get("DAILY_RUN_TIME", "10:35")
 TUESDAY_AUDIT_TIME = os.environ.get("TUESDAY_AUDIT_TIME", "08:00")

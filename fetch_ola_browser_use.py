@@ -45,7 +45,10 @@ from browser_use.llm.google.chat import ChatGoogle
 from gmail_imap_fetch import fetch_ola_xlsx_from_gmail
 
 # Load environment
-load_dotenv()
+env_path = Path(__file__).parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 # Configuration
 PHONE_NUMBER  = os.environ.get("OLA_PHONE_NUMBER", "7483731338")
