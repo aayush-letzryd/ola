@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any
 
 from fetch_ola_statement import fetch_ola_statement
 from fetch_ola_browser_use import (
-    execute_browser_download_run,
+    run_single_run_with_retries,
     calculate_date_range_for_day,
     verify_and_archive_statement,
     DOWNLOAD_DIR
@@ -98,7 +98,7 @@ def download_statement_hybrid(
         start_time = time.time()
         try:
             downloaded_file = asyncio.run(
-                execute_browser_download_run(
+                run_single_run_with_retries(
                     run_info=run_info,
                     headless=headless,
                     logger=logger

@@ -209,7 +209,8 @@ def _check_gmail_for_xlsx(
                         or (filename and (filename.lower().endswith(".xlsx") or filename.lower().endswith(".csv")))
                     )
 
-                    if "attachment" in content_disp and is_excel and filename:
+                    if is_excel and filename:
+                        logger(f"[GMAIL] Found valid statement attachment: {filename}")
                         payload = part.get_payload(decode=True)
                         if not payload or len(payload) < 5000:
                             continue  # skip empty/tiny files

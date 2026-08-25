@@ -420,36 +420,64 @@ async def execute_browser_download_run(
         return verified
 
     logger("[Post-Run] [!] Statement not received after 30 minutes polling.")
+    logger(f"[Post-Run] [!] Statement not received after {imap_wait_seconds} seconds polling.")
     return None
 
 # ---------------------------------------------------------------------------
-# 2-Attempt Retry Strategy (Attempt 1 + 60m Cooldown -> Final Attempt -> Alert)
+# 2-Attempt Retry Strategy
 # ---------------------------------------------------------------------------
-async def run_single_run_with_retries(run_info: Dict[str, Any], headless: bool = False, logger=print) -> Optional[str]:
-    # Attempt 1 (11:00 AM)
-    logger(f"\n[Execution Strategy] Running Attempt 1/2 for {run_info['run_name']}...")
+async def run_single_run_with_retries(
+    run_info: Dict[str, Any],
+    headless: bool = False,
+    imap_wait_seconds: int = 2400, # 40 minutes
+    logger=print
+) -> Optional[str]:
+    """
+    Executes a single scheduled run with the 2-Attempt Retry Strategy:
+    - Attempt 1: 2-burst email request + 40-minute IMAP polling.
+    - Cooldown: 20 minutes.
+    - Attempt 2: 2-burst request + 40-minute IMAP polling.
+    """
+    run_name = run_info["run_name"]
+    logger("\n" + "="*70)
+    logger(f"STARTING SCHEDULED RUN: {run_name}")
+    logger(f"Date Range: {run_info['from_str']} ({run_info['from_human']}) to {run_info['to_str']} ({run_info['to_human']})")
+    logger(f"Purpose: {run_info['purpose']}")
+    logger("="*70)
+
+    # -----------------------------------------------------------------------
+    # ATTEMPT 1
+    # -----------------------------------------------------------------------
+    logger(f"\n[ATTEMPT 1] Initiating Attempt 1 for {run_name} (40m IMAP Timeout)...")
     downloaded_file = await execute_browser_download_run(
-        run_info,
+        run_info=run_info,
+        attempt_number=1,
         headless=headless,
-        imap_wait_seconds=1800, # 30 minutes polling
-        logger=logger
+        logger=logger,
+        imap_wait_seconds=imap_wait_seconds
     )
+
     if downloaded_file:
-        logger(f"\n[✓] Success on Attempt 1: {downloaded_file}")
+        logger(f"[ATTEMPT 1] [SUCCESS] Download verified on Attempt 1: {downloaded_file}")
         return downloaded_file
 
-    # If Attempt 1 times out after 30 minutes -> Cooldown for exactly 60 minutes (3600s)
-    cooldown_seconds = 3600  # 60 minutes cooldown
-    logger(f"\n[Cooldown] Statement not received in 30 mins. Pausing 60 minutes to allow Ola backend queue to finish processing...")
+    # -----------------------------------------------------------------------
+    # COOLDOWN (20 Minutes)
+    # -----------------------------------------------------------------------
+    cooldown_seconds = 1200 # 20 minutes cooldown
+    logger(f"\n[COOLDOWN] Attempt 1 failed to secure report. Entering 20-minute cooldown...")
     await asyncio.sleep(cooldown_seconds)
 
-    # Attempt 2 (12:30 PM Final Catch-Up)
-    logger(f"\n[Execution Strategy] Running Attempt 2/2 (Final Catch-Up) for {run_info['run_name']}...")
+    # -----------------------------------------------------------------------
+    # ATTEMPT 2
+    # -----------------------------------------------------------------------
+    logger(f"\n[ATTEMPT 2] Initiating Attempt 2 for {run_name} (2 Modal Bursts + 40m IMAP Timeout)...")
     downloaded_file = await execute_browser_download_run(
-        run_info,
+        run_info=run_info,
+        attempt_number=2,
         headless=headless,
-        imap_wait_seconds=1800, # 30 minutes polling
-        logger=logger
+        logger=logger,
+        imap_wait_seconds=imap_wait_seconds
     )
     if downloaded_file:
         logger(f"\n[✓] Success on Attempt 2: {downloaded_file}")
