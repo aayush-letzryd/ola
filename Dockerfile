@@ -1,20 +1,26 @@
-# Use official Microsoft Playwright image with Python & Chromium pre-installed
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM python:3.11-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Kolkata
 
 WORKDIR /app
 
-# Install dependencies
+# Install system dependencies for Chromium & Playwright
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    curl \
+    gnupg \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    playwright install chromium && \
+    playwright install-deps chromium
 
-# Copy all application code
 COPY . .
 
-# Default command
 CMD ["python", "ola_master_pipeline.py"]
