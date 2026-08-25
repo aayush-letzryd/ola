@@ -420,7 +420,10 @@ def run_tuesday_audit_reconciliation(
         df_clean = pd.DataFrame(records)
         if df_clean.empty:
             return pd.DataFrame(columns=["key", "vehicle_number", "date_for", "transaction_type", "sub_category", "payment_type", "count", "sum_amount"])
-        grouped = df_clean.groupby(["key", "vehicle_number", "date_for", "transaction_type", "sub_category", "payment_type"]).agg(
+        grouped = df_clean.groupby(
+            ["key", "vehicle_number", "date_for", "transaction_type", "sub_category", "payment_type"],
+            dropna=False
+        ).agg(
             count=("amount", "count"),
             sum_amount=("amount", "sum")
         ).reset_index()
