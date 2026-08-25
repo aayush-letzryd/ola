@@ -130,7 +130,13 @@ def run_daily_sync(
         )
 
         if not downloaded_file or not os.path.exists(downloaded_file):
-            logger("[Pipeline] [ERROR] Failed to secure statement from Ola.")
+            err_msg = "Statement file could not be secured from Ola portal or email after all retry attempts."
+            logger(f"[Pipeline] [ERROR] {err_msg}")
+            try:
+                from alerts import send_failure_alert
+                send_failure_alert(str(from_d), str(to_d), err_msg, logger=logger)
+            except Exception as _ae:
+                logger(f"[Pipeline] Warning dispatching alert email: {_ae}")
             return None
 
         # Step 2: Upload to Google Cloud Storage
@@ -162,6 +168,11 @@ def run_daily_sync(
 
     except Exception as e:
         logger(f"[Pipeline] [FATAL ERROR] Pipeline run failed: {e}")
+        try:
+            from alerts import send_failure_alert
+            send_failure_alert(str(from_d), str(to_d), f"Pipeline execution error: {e}", logger=logger)
+        except Exception:
+            pass
         return None
 
 def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
