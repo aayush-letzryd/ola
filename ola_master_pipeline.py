@@ -141,14 +141,26 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
     prior_monday, prior_sunday = calculate_prior_week_dates()
     logger(f"Audit Target Window: {prior_monday} to {prior_sunday}")
 
-    # 1. Check for Monday's Baseline Statement
+    # 1. Check for Monday's Baseline Statement locally or from GCS
     mon_files = list(DOWNLOAD_DIR.glob(f"*{prior_monday.strftime('%Y-%m')}*.xlsx"))
-    if not mon_files:
-        logger("[Audit] No Monday baseline file found in downloads. Ingesting today's statement directly.")
-        return run_daily_sync(prior_monday, prior_sunday, "Tuesday Audit Baseline", force_engine, logger)
+    monday_file = None
+    if mon_files:
+        monday_file = str(max(mon_files, key=os.path.getmtime))
+        logger(f"Found local Monday Baseline Statement: {os.path.basename(monday_file)}")
+    else:
+        # In Cloud Run (stateless): try fetching Monday baseline from GCS bucket!
+        from gcs_upload import download_statement_from_gcs
+        # Look for Monday's statement filename
+        target_mon_date = prior_monday + timedelta(days=7) # Monday after prior week
+        gcs_blob = f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{target_mon_date.strftime('%Y-%m-%d')}.xlsx"
+        local_dest = DOWNLOAD_DIR / f"ola_statement_{target_mon_date.strftime('%Y-%m-%d')}.xlsx"
+        if download_statement_from_gcs(gcs_blob, str(local_dest), logger=logger):
+            monday_file = str(local_dest)
+            logger(f"Retrieved Monday Baseline from GCS: {os.path.basename(monday_file)}")
 
-    monday_file = str(max(mon_files, key=os.path.getmtime))
-    logger(f"Found Monday Baseline Statement: {os.path.basename(monday_file)}")
+    if not monday_file:
+        logger("[Audit] No Monday baseline file found in local or GCS. Ingesting today's statement as baseline.")
+        return run_daily_sync(prior_monday, prior_sunday, "Tuesday Audit Baseline", force_engine, logger)
 
     # 2. Download Fresh Tuesday Audit File
     tue_file = download_statement_hybrid(

@@ -68,6 +68,29 @@ def upload_statement_to_gcs(
         logger(f"[GCS] [!] Upload warning: {err}")
         return None, None
 
+def download_statement_from_gcs(
+    blob_name: str,
+    local_dest_path: str,
+    bucket_name: str = DEFAULT_BUCKET,
+    logger=print
+) -> bool:
+    """
+    Downloads a statement from GCS to local directory for baseline comparison.
+    """
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        if not blob.exists():
+            return False
+        os.makedirs(os.path.dirname(local_dest_path), exist_ok=True)
+        blob.download_to_filename(local_dest_path)
+        logger(f"[GCS] [✓] Retrieved baseline statement from gs://{bucket_name}/{blob_name}")
+        return True
+    except Exception as e:
+        logger(f"[GCS] [!] GCS download warning: {e}")
+        return False
+
 if __name__ == "__main__":
     import sys
     test_file = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\anura\RYD\letzryd-ola-integration\ola_downloads\ola_statement_2026-08-24.xlsx"
