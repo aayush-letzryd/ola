@@ -679,6 +679,32 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             ss(pg, "step8_to_set", lgr)
             pg.wait_for_timeout(1500)
 
+        # ── Helper: apply "Yesterday" quick-filter ───────────────────────
+        def _select_yesterday_filter(pg, lgr):
+            lgr("[FETCH] Selecting 'Yesterday' preset quick-filter...")
+            _open_filter_dropdown(pg, lgr)
+            pg.wait_for_timeout(800)
+            try:
+                pg.locator("text=Yesterday").first.click(timeout=4000)
+                lgr("[FETCH] ✓ Selected 'Yesterday'")
+            except Exception as _e:
+                lgr(f"[FETCH] 'Yesterday' filter click error: {_e}")
+            pg.wait_for_timeout(2000)
+            ss(pg, "step8_yesterday_filter", lgr)
+
+        # ── Helper: apply "Last 7 Days" quick-filter ─────────────────────
+        def _select_last_7_days_filter(pg, lgr):
+            lgr("[FETCH] Selecting 'Last 7 Days' preset quick-filter...")
+            _open_filter_dropdown(pg, lgr)
+            pg.wait_for_timeout(800)
+            try:
+                pg.locator("text=Last 7 Days").first.click(timeout=4000)
+                lgr("[FETCH] ✓ Selected 'Last 7 Days'")
+            except Exception as _e:
+                lgr(f"[FETCH] 'Last 7 Days' filter click error: {_e}")
+            pg.wait_for_timeout(2000)
+            ss(pg, "step8_last_7_days_filter", lgr)
+
         # ── Helper: apply "Today" quick-filter ───────────────────────────
         def _select_today_filter(pg, lgr):
             lgr("[FETCH] Selecting 'Today' quick-filter...")
@@ -694,7 +720,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
         # ── Helper: click DOWNLOAD STATEMENT and handle result ────────────
         def _attempt_download(pg, attempt_label: str, lgr,
-                              attempt_start_ts: float) -> str | None:
+                              attempt_start_ts: float) -> Optional[str]:
             """
             Click DOWNLOAD STATEMENT and capture either direct download or email modal.
             """
@@ -712,7 +738,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             # Pre-click check for email modal
             if _handle_email_modal(pg, EMAIL, lgr):
                 lgr(f"[FETCH] [{attempt_label}] Email export triggered (pre-click) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=30, max_wait_s=300)
+                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
 
             # Set up direct download listener
             download_holder = []
@@ -730,6 +756,18 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
             pg.wait_for_timeout(2500)
             ss(pg, f"post_download_{attempt_label}", lgr)
+
+            # Check if Ola error toast "Failed to download the data. Please try again." appeared
+            try:
+                err_toast = pg.locator("text=Failed to download the data").first
+                if err_toast.is_visible(timeout=1500):
+                    lgr(f"[FETCH] [{attempt_label}] ⚠️ Detected Ola error toast ('Failed to download'). Retrying burst click in 2s...")
+                    pg.wait_for_timeout(2000)
+                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=5000)
+                    lgr(f"[FETCH] [{attempt_label}] Fired Burst 2 click on DOWNLOAD STATEMENT")
+                    pg.wait_for_timeout(2500)
+            except Exception:
+                pass
 
             # Check if email modal appeared right after clicking DOWNLOAD STATEMENT
             if _handle_email_modal(pg, EMAIL, lgr):
@@ -780,30 +818,37 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             lgr(f"[FETCH] [{attempt_label}] Direct download not captured — polling IMAP fallback...")
             return _poll_imap(lgr, lookback_minutes=45, max_wait_s=600)
 
-
-
         # ════════════════════════════════════════════════════════════════════
-        # RETRY SEQUENCE
+        # DYNAMIC RETRY & PRESET SEQUENCE
         # ════════════════════════════════════════════════════════════════════
-        #  1. Custom Date (today)   ← primary
-        #  2. Custom Date (today)   ← retry
-        #  3. Today filter          ← fallback-1
-        #  4. Custom Date (today)   ← fallback-2
-        #  5. Today filter          ← fallback-3
-        # Before each retry (attempts 2–5): check IMAP first for a report
-        # that may have arrived from a previous email export trigger.
-        # ════════════════════════════════════════════════════════════════════
-
         # Clean up any leftover UUID temp files before starting
         _cleanup_temp_downloads(logger)
 
-        attempt_sequence = [
-            ("attempt_1_custom",   _select_custom_date_today),
-            ("attempt_2_custom",   _select_custom_date_today),
-            ("fallback_1_today",   _select_today_filter),
-            ("fallback_2_custom",  _select_custom_date_today),
-            ("fallback_3_today",   _select_today_filter),
-        ]
+        yesterday_date = (datetime.today() - timedelta(days=1)).date()
+        is_single_yesterday = (from_date.date() == yesterday_date and to_date.date() == yesterday_date)
+        is_7_days = ((to_date.date() - from_date.date()).days == 6)
+
+        if is_single_yesterday:
+            logger("[FETCH] Target is Yesterday -> Prioritizing 'Yesterday' preset dropdown option.")
+            attempt_sequence = [
+                ("attempt_1_yesterday_preset", _select_yesterday_filter),
+                ("attempt_2_custom_date",      _select_custom_date_today),
+                ("fallback_1_yesterday_burst", _select_yesterday_filter),
+                ("fallback_2_last_7_days",     _select_last_7_days_filter),
+            ]
+        elif is_7_days:
+            logger("[FETCH] Target is 7 Days -> Prioritizing 'Last 7 Days' preset dropdown option.")
+            attempt_sequence = [
+                ("attempt_1_last_7_days",      _select_last_7_days_filter),
+                ("attempt_2_custom_date",      _select_custom_date_today),
+                ("fallback_1_last_7_days",     _select_last_7_days_filter),
+            ]
+        else:
+            attempt_sequence = [
+                ("attempt_1_custom_date",      _select_custom_date_today),
+                ("attempt_2_custom_date",      _select_custom_date_today),
+                ("fallback_1_last_7_days",     _select_last_7_days_filter),
+            ]
 
         saved_path = None
 
