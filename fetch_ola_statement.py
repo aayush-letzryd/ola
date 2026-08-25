@@ -734,7 +734,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             # Check if email modal appeared right after clicking DOWNLOAD STATEMENT
             if _handle_email_modal(pg, EMAIL, lgr):
                 lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-click) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=30, max_wait_s=300)
+                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
 
             # Dismiss OKAY/CONFIRM popup if present
             for popup_text in ["OKAY", "Okay", "OK", "CONFIRM", "Confirm"]:
@@ -754,7 +754,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             # Check again if email modal appeared after dismissing okay
             if _handle_email_modal(pg, EMAIL, lgr):
                 lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-okay) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=30, max_wait_s=300)
+                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
 
             # Wait briefly for direct browser download event
             wait_start = time.time()
@@ -778,7 +778,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
             # Final check: poll IMAP as fallback
             lgr(f"[FETCH] [{attempt_label}] Direct download not captured — polling IMAP fallback...")
-            return _poll_imap(lgr, lookback_minutes=30, max_wait_s=180)
+            return _poll_imap(lgr, lookback_minutes=45, max_wait_s=600)
 
 
 

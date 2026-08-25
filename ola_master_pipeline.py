@@ -75,6 +75,29 @@ def calculate_prior_week_dates(target_d: Optional[date] = None) -> Tuple[date, d
     prior_sunday = prior_monday + timedelta(days=6)
     return prior_monday, prior_sunday
 
+def check_if_already_ingested(from_d: date, to_d: date, logger=log) -> bool:
+    try:
+        from load_ola_to_postgres import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        today = date.today()
+        cur.execute("""
+            SELECT id, total_crns_imported FROM ola_ingestion_log 
+            WHERE date_range_start = %s AND date_range_end = %s 
+              AND status = 'SUCCESS' 
+              AND executed_at::date = %s
+            ORDER BY id DESC LIMIT 1;
+        """, (from_d, to_d, today))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            logger(f"[Pipeline] [SKIP] Target date range ({from_d} to {to_d}) was ALREADY successfully ingested today (Log ID: #{row[0]}, Trips: {row[1]:,}).")
+            logger("[Pipeline] [SKIP] No redundant execution needed. Exiting cleanly with 0 cost!")
+            return True
+    except Exception as e:
+        logger(f"[Pipeline] Warning checking existing ingestion status: {e}")
+    return False
+
 def run_daily_sync(
     from_d: date,
     to_d: date,
@@ -87,6 +110,14 @@ def run_daily_sync(
     logger(f"Target Date Window: {from_d} to {to_d}")
     logger("="*75)
     start_t = time.time()
+
+    # Smart idempotency check: Skip if already ingested today
+    if not force_engine and check_if_already_ingested(from_d, to_d, logger=logger):
+        return {
+            "status": "SUCCESS",
+            "skipped": True,
+            "message": "Already ingested today."
+        }
 
     try:
         # Step 1: Download Statement File
@@ -206,15 +237,20 @@ def main():
 
     args = parser.parse_args()
 
+    res = None
     if args.tuesday_audit:
-        run_tuesday_audit(force_engine=args.force_engine)
+        res = run_tuesday_audit(force_engine=args.force_engine)
     elif args.from_date and args.to_date:
         f_d = datetime.strptime(args.from_date, "%Y-%m-%d").date()
         t_d = datetime.strptime(args.to_date, "%Y-%m-%d").date()
-        run_daily_sync(f_d, t_d, f"Custom Date Sync ({f_d} to {t_d})", force_engine=args.force_engine)
+        res = run_daily_sync(f_d, t_d, f"Custom Date Sync ({f_d} to {t_d})", force_engine=args.force_engine)
     else:
         w_start, w_end, run_desc = calculate_daily_date_range()
-        run_daily_sync(w_start, w_end, run_desc, force_engine=args.force_engine)
+        res = run_daily_sync(w_start, w_end, run_desc, force_engine=args.force_engine)
+
+    if not res or res.get("status") != "SUCCESS":
+        log("[Pipeline] [FATAL] Execution completed without data ingestion. Exiting with failure status.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

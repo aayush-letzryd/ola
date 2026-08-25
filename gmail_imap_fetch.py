@@ -51,8 +51,8 @@ IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 
 # Ola email subject keywords and sender patterns
-OLA_SUBJECT_KEYWORDS = ["statement", "hisaab", "accounting", "settlement", "ola", "report", "details"]
-OLA_SENDER_KEYWORDS  = ["ola", "olacabs", "noreply", "no-reply", "olacabs.com", "@olacabs"]
+OLA_SUBJECT_KEYWORDS = ["statement", "hisaab", "accounting", "settlement", "report", "details"]
+OLA_SENDER_KEYWORDS  = ["olacabs.com", "@olacabs", "no-reply@olacabs.com", "noreply@olacabs.com", "olacabs"]
 
 
 def _decode_str(value: Union[bytes, str]) -> str:
