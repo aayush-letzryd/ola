@@ -279,8 +279,10 @@ def main():
 
     args = parser.parse_args()
 
+    is_tuesday_audit = args.tuesday_audit or os.environ.get("TUESDAY_AUDIT", "false").lower() == "true"
+
     res = None
-    if args.tuesday_audit:
+    if is_tuesday_audit:
         res = run_tuesday_audit(force_engine=args.force_engine)
     elif args.from_date and args.to_date:
         f_d = datetime.strptime(args.from_date, "%Y-%m-%d").date()
