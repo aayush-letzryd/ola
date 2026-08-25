@@ -829,25 +829,18 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
         is_7_days = ((to_date.date() - from_date.date()).days == 6)
 
         if is_single_yesterday:
-            logger("[FETCH] Target is Yesterday -> Prioritizing 'Yesterday' preset dropdown option.")
+            logger("[FETCH] Target is single-day Yesterday -> Prioritizing 'Yesterday' native preset.")
             attempt_sequence = [
                 ("attempt_1_yesterday_preset", _select_yesterday_filter),
                 ("attempt_2_custom_date",      _select_custom_date_today),
                 ("fallback_1_yesterday_burst", _select_yesterday_filter),
-                ("fallback_2_last_7_days",     _select_last_7_days_filter),
-            ]
-        elif is_7_days:
-            logger("[FETCH] Target is 7 Days -> Prioritizing 'Last 7 Days' preset dropdown option.")
-            attempt_sequence = [
-                ("attempt_1_last_7_days",      _select_last_7_days_filter),
-                ("attempt_2_custom_date",      _select_custom_date_today),
-                ("fallback_1_last_7_days",     _select_last_7_days_filter),
             ]
         else:
+            logger(f"[FETCH] Multi-day target ({from_date.strftime('%Y-%m-%d')} to {to_date.strftime('%Y-%m-%d')}) -> Using exact Custom Date picker.")
             attempt_sequence = [
                 ("attempt_1_custom_date",      _select_custom_date_today),
                 ("attempt_2_custom_date",      _select_custom_date_today),
-                ("fallback_1_last_7_days",     _select_last_7_days_filter),
+                ("fallback_1_custom_date",     _select_custom_date_today),
             ]
 
         saved_path = None
