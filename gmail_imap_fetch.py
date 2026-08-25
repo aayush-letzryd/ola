@@ -217,13 +217,6 @@ def _check_gmail_for_xlsx(
 
                         today_str = datetime.now().strftime("%Y-%m-%d")
                         safe_fname = f"ola_statement_{today_str}.xlsx"
-                        # Remove any old .xlsx files in download_dir to keep storage clean
-                        for f in os.listdir(download_dir):
-                            if f.endswith(".xlsx") and f != safe_fname:
-                                try:
-                                    os.remove(os.path.join(download_dir, f))
-                                except Exception:
-                                    pass
                         save_path = os.path.join(download_dir, safe_fname)
                         with open(save_path, "wb") as f:
                             f.write(payload)

@@ -492,20 +492,14 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 fpath = os.path.join(DOWNLOAD_DIR, fname)
                 if not os.path.isfile(fpath):
                     continue
-                if uuid_pattern.match(fname):
+                if uuid_pattern.match(fname) or fname.endswith(".crdownload") or fname.endswith(".tmp"):
                     try:
                         os.remove(fpath)
                         removed_temp += 1
                     except Exception:
                         pass
-                elif fname.endswith(".xlsx") and fname != current_fname:
-                    try:
-                        os.remove(fpath)
-                        removed_old += 1
-                    except Exception:
-                        pass
-            if removed_temp or removed_old:
-                lgr(f"[FETCH] 🧹 Cleaned up {removed_temp} temp file(s) and {removed_old} old statement file(s) from ola_downloads/")
+            if removed_temp:
+                lgr(f"[FETCH] 🧹 Cleaned up {removed_temp} temp file(s) from ola_downloads/")
 
         # ── Helper: submit email modal ────────────────────────────────────
         def _handle_email_modal(pg, email_addr, lgr) -> bool:
