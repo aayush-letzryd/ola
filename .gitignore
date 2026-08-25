@@ -1,0 +1,21 @@
+# Environment & secrets
+.env
+.env.local
+
+# Virtual Environments
+venv/
+ENV/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+
+# Downloads & Chrome Profile
+ola_downloads/
+ola_chrome_profile/
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
