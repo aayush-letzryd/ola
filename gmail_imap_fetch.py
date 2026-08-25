@@ -28,6 +28,7 @@ import time
 from email.header import decode_header
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional, Union
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -54,7 +55,7 @@ OLA_SUBJECT_KEYWORDS = ["statement", "hisaab", "accounting", "settlement", "ola"
 OLA_SENDER_KEYWORDS  = ["ola", "olacabs", "noreply", "no-reply", "olacabs.com", "@olacabs"]
 
 
-def _decode_str(value: bytes | str) -> str:
+def _decode_str(value: Union[bytes, str]) -> str:
     if isinstance(value, bytes):
         try:
             return value.decode("utf-8")
@@ -69,7 +70,7 @@ def fetch_ola_xlsx_from_gmail(
     poll_interval_s: int = 60,
     max_wait_s: int = 2400, # 40 minutes (10:35 AM to 11:15 AM)
     lookback_minutes: int = 45,
-) -> str | None:
+) -> Optional[str]:
     """
     Connect to Gmail via IMAP and download the most recent Ola statement .xlsx
     attachment received within the last `lookback_minutes` minutes.
@@ -125,7 +126,7 @@ def _check_gmail_for_xlsx(
     download_dir: str,
     lookback_minutes: int,
     logger,
-) -> str | None:
+) -> Optional[str]:
     """
     Single IMAP connection attempt. Returns saved file path or None.
 

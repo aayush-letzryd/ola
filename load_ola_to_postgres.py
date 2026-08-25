@@ -517,6 +517,10 @@ def run_tuesday_audit_reconciliation(
             "trip_diffs_count": len(crn_diffs),
             "txn_diffs_count": len(txn_diffs)
         }
+    except Exception as e:
+        conn.rollback()
+        logger(f"[Audit Engine] [ERROR] DB write failed — rolled back safely: {e}")
+        raise
     finally:
         cur.close()
         conn.close()
