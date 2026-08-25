@@ -164,6 +164,22 @@ def run_daily_sync(
         logger(f"  • Trips Upserted in 'ola_raw_crns':        {res['crns_count']:,}")
         logger(f"  • Transactions in 'ola_raw_transactions':  {res['txns_count']:,}")
         logger(f"  • Public Cloud Storage URL:                 {pub_url}\n")
+
+        # Dispatch Success Summary Email to vendor_aayush@letzryd.com
+        try:
+            from alerts import send_success_notification
+            send_success_notification(
+                date_range_start=str(from_d),
+                date_range_end=str(to_d),
+                trips_count=res['crns_count'],
+                txns_count=res['txns_count'],
+                public_url=pub_url,
+                duration_seconds=duration,
+                logger=logger
+            )
+        except Exception as _ne:
+            logger(f"[Pipeline] Warning sending success email: {_ne}")
+
         return res
 
     except Exception as e:
@@ -237,6 +253,21 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
     logger(f"\n[Audit] [SUCCESS] Tuesday Audit Reconciliation Finished!")
     logger(f"  • Trip Discrepancies Found:        {audit_res['trip_diffs_count']} rows in 'ola_audit_diff_crns'")
     logger(f"  • Transaction Discrepancies Found: {audit_res['txn_diffs_count']} rows in 'ola_audit_diff_transactions'")
+
+    # Dispatch Tuesday Audit Summary Email to vendor_aayush@letzryd.com
+    try:
+        from alerts import send_audit_notification
+        send_audit_notification(
+            week_start=str(prior_monday),
+            week_end=str(prior_sunday),
+            trip_diffs=audit_res['trip_diffs_count'],
+            txn_diffs=audit_res['txn_diffs_count'],
+            public_url=pub_url,
+            logger=logger
+        )
+    except Exception as _ae:
+        logger(f"[Audit] Warning sending audit email: {_ae}")
+
     return audit_res
 
 def main():
