@@ -1,14 +1,15 @@
 """
 alerts.py
 =========
-Email Notification & Alerting Utility for LetzRyd Ola Ingestion Pipeline.
-Uses Gmail SMTP with App Password to dispatch status emails to vendor_aayush@letzryd.com.
+Executive-Grade Email Notification & Alerting Utility for LetzRyd Ola Pipeline.
+Includes LetzRyd branded header/footer, inline logo, and color-coded status cards.
 """
 
 import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -21,6 +22,78 @@ load_dotenv(env_path)
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 DEFAULT_RECIPIENT = "vendor_aayush@letzryd.com"
+LOGO_PATH = Path(__file__).parent / "assets" / "letzryd_logo.png"
+
+def _get_base_template(status_type: str, title: str, subtitle: str, content_table: str, action_cta: str = "") -> str:
+    """Constructs an executive branded HTML email template with LetzRyd logo."""
+    # Theme colors
+    colors = {
+        "SUCCESS": {"banner_bg": "#e6f4ea", "banner_border": "#34a853", "banner_text": "#137333", "badge": "STATUS: SUCCESSFUL", "badge_bg": "#34a853"},
+        "AUDIT":   {"banner_bg": "#e8f0fe", "banner_border": "#1a73e8", "banner_text": "#174ea6", "badge": "TUESDAY RECONCILIATION", "badge_bg": "#1a73e8"},
+        "FAILURE": {"banner_bg": "#fce8e6", "banner_border": "#ea4335", "banner_text": "#c5221f", "badge": "STATUS: ACTION REQUIRED", "badge_bg": "#ea4335"},
+    }
+    c = colors.get(status_type, colors["SUCCESS"])
+    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #202124;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f6f8; padding: 30px 10px;">
+            <tr>
+                <td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #e1e4e8;">
+                        
+                        <!-- Header Banner -->
+                        <tr>
+                            <td style="background-color: #ffffff; padding: 24px 30px 18px 30px; text-align: center; border-bottom: 1px solid #edf0f2;">
+                                <img src="cid:letzryd_logo" alt="LetzRyd Logo" style="height: 52px; width: auto; display: block; margin: 0 auto 12px auto;" />
+                                <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.2px; color: #5f6368; text-transform: uppercase;">Fleet Financial Operations • Ola Pipeline</div>
+                            </td>
+                        </tr>
+
+                        <!-- Status Badge & Title -->
+                        <tr>
+                            <td style="padding: 24px 30px 10px 30px;">
+                                <div style="display: inline-block; background-color: {c['badge_bg']}; color: #ffffff; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; margin-bottom: 12px;">
+                                    {c['badge']}
+                                </div>
+                                <h1 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 700; color: #202124;">{title}</h1>
+                                <p style="margin: 0; font-size: 13px; color: #5f6368;">{subtitle}</p>
+                            </td>
+                        </tr>
+
+                        <!-- Main Content Details Table -->
+                        <tr>
+                            <td style="padding: 15px 30px 20px 30px;">
+                                <div style="background-color: {c['banner_bg']}; border-left: 4px solid {c['banner_border']}; border-radius: 6px; padding: 18px 20px; margin-bottom: 20px;">
+                                    {content_table}
+                                </div>
+                                {action_cta}
+                            </td>
+                        </tr>
+
+                        <!-- Professional Footer -->
+                        <tr>
+                            <td style="background-color: #fafbfc; border-top: 1px solid #edf0f2; padding: 22px 30px; text-align: center;">
+                                <img src="cid:letzryd_logo" alt="LetzRyd Logo" style="height: 28px; width: auto; opacity: 0.85; display: block; margin: 0 auto 8px auto;" />
+                                <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 600; color: #3c4043;">LetzRyd Mobility Private Limited</p>
+                                <p style="margin: 0 0 6px 0; font-size: 11px; color: #70757a;">Automated Cloud Pipeline • Serverless Microservice (asia-south1)</p>
+                                <p style="margin: 0; font-size: 10px; color: #9aa0a6;">Execution Timestamp: {now_str} • Confidential</p>
+                            </td>
+                        </tr>
+
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
 
 def _send_email(subject: str, html_body: str, recipient: str = DEFAULT_RECIPIENT, logger=print) -> bool:
     smtp_user = os.environ.get("GMAIL_IMAP_USER", os.environ.get("SMTP_USER", DEFAULT_RECIPIENT))
@@ -31,17 +104,28 @@ def _send_email(subject: str, html_body: str, recipient: str = DEFAULT_RECIPIENT
         return False
 
     try:
-        msg = MIMEMultipart("alternative")
+        msg = MIMEMultipart("related")
         msg["Subject"] = subject
         msg["From"] = f"LetzRyd Ola Automation <{smtp_user}>"
         msg["To"] = recipient
-        msg.attach(MIMEText(html_body, "html"))
+
+        msg_alt = MIMEMultipart("alternative")
+        msg.attach(msg_alt)
+        msg_alt.attach(MIMEText(html_body, "html"))
+
+        # Attach inline LetzRyd logo
+        if LOGO_PATH.exists():
+            with open(LOGO_PATH, "rb") as img_f:
+                logo_img = MIMEImage(img_f.read())
+                logo_img.add_header("Content-ID", "<letzryd_logo>")
+                logo_img.add_header("Content-Disposition", "inline", filename="letzryd_logo.png")
+                msg.attach(logo_img)
 
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_user, [recipient], msg.as_string())
 
-        logger(f"[EMAIL] ✉️ Notification successfully dispatched to {recipient}!")
+        logger(f"[EMAIL] ✉️ Branded email notification successfully sent to {recipient}!")
         return True
     except Exception as e:
         logger(f"[EMAIL] [!] Failed to send notification email: {e}")
@@ -57,53 +141,45 @@ def send_success_notification(
     recipient_email: str = DEFAULT_RECIPIENT,
     logger=print
 ) -> bool:
-    """Dispatches a green success summary email on successful ingestion."""
-    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+    """Dispatches a branded green success summary email on successful ingestion."""
     subject = f"✅ [SUCCESS] LetzRyd Ola Statement Ingested ({date_range_start} to {date_range_end})"
+    title = f"Ola Statement Ingestion Completed"
+    subtitle = f"All ride and financial ledger records successfully loaded into PostgreSQL."
 
-    url_btn = ""
+    table = f"""
+    <table width="100%" cellpadding="6" cellspacing="0" style="font-size: 13px; color: #202124;">
+        <tr>
+            <td style="font-weight: 600; width: 170px; color: #5f6368;">Target Date Window:</td>
+            <td style="font-weight: 700;">{date_range_start} &rarr; {date_range_end}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Trips Ingested:</td>
+            <td style="font-weight: 700; color: #137333;">{trips_count:,} rides</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Financial Ledger Rows:</td>
+            <td style="font-weight: 700; color: #137333;">{txns_count:,} rows</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Execution Duration:</td>
+            <td>{duration_seconds:.1f} seconds</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Database Status:</td>
+            <td><span style="background-color: #ceead6; color: #0d652d; padding: 2px 8px; border-radius: 4px; font-weight: 600;">ACTIVE & COMMITTED</span></td>
+        </tr>
+    </table>
+    """
+
+    cta = ""
     if public_url:
-        url_btn = f"""
-        <div style="margin-top: 20px;">
-            <a href="{public_url}" style="background-color: #28a745; color: white; padding: 10px 18px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">📥 Download Raw Statement (.xlsx)</a>
+        cta = f"""
+        <div style="text-align: center; margin-top: 22px;">
+            <a href="{public_url}" style="background-color: #137333; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 700; display: inline-block; box-shadow: 0 2px 6px rgba(19,115,51,0.25);">📥 Download Statement (.xlsx)</a>
         </div>
         """
 
-    html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-        <div style="background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-            <h2 style="color: #155724; margin: 0 0 10px 0;">✅ Ola Statement Ingestion Successful</h2>
-            <p style="margin: 0; font-size: 14px;">The automated ingestion completed and all data was loaded into PostgreSQL.</p>
-        </div>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold; width: 180px;">Target Date Window:</td>
-                <td style="padding: 8px 0;">{date_range_start} &rarr; {date_range_end}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Timestamp:</td>
-                <td style="padding: 8px 0;">{now_str}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Trips Ingested:</td>
-                <td style="padding: 8px 0; font-weight: bold; color: #28a745;">{trips_count:,} rides</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Financial Ledger Rows:</td>
-                <td style="padding: 8px 0; font-weight: bold; color: #28a745;">{txns_count:,} transactions</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Duration:</td>
-                <td style="padding: 8px 0;">{duration_seconds:.1f} seconds</td>
-            </tr>
-        </table>
-
-        {url_btn}
-    </body>
-    </html>
-    """
+    html = _get_base_template("SUCCESS", title, subtitle, table, cta)
     return _send_email(subject, html, recipient_email, logger=logger)
 
 def send_audit_notification(
@@ -115,46 +191,45 @@ def send_audit_notification(
     recipient_email: str = DEFAULT_RECIPIENT,
     logger=print
 ) -> bool:
-    """Dispatches an audit summary email for Tuesday Reconciliation."""
-    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+    """Dispatches a branded audit summary email for Tuesday Reconciliation."""
     subject = f"🔍 [AUDIT] LetzRyd Ola Tuesday Reconciliation ({week_start} to {week_end})"
+    title = f"Tuesday Reconciliation Audit Report"
+    subtitle = f"Automated delta check between Monday baseline and Tuesday statement."
 
-    status_color = "#28a745" if (trip_diffs == 0 and txn_diffs == 0) else "#ffc107"
-    status_text = "100% RECONCILED (0 Discrepancies)" if (trip_diffs == 0 and txn_diffs == 0) else f"Found {trip_diffs} Trip Diffs, {txn_diffs} Ledger Diffs"
+    is_perfect = (trip_diffs == 0 and txn_diffs == 0)
+    status_label = "100% RECONCILED (0 Discrepancies)" if is_perfect else f"{trip_diffs} Trip Diffs, {txn_diffs} Ledger Diffs"
+    status_badge = "#ceead6; color: #0d652d;" if is_perfect else "#feefc3; color: #b06000;"
 
-    html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-        <div style="background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-            <h2 style="color: #0c5460; margin: 0 0 10px 0;">🔍 Tuesday Reconciliation Audit Complete</h2>
-            <p style="margin: 0; font-size: 14px;">Comparison completed between Monday baseline and Tuesday statement.</p>
-        </div>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold; width: 180px;">Audited Week:</td>
-                <td style="padding: 8px 0;">{week_start} &rarr; {week_end}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Audit Timestamp:</td>
-                <td style="padding: 8px 0;">{now_str}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Audit Result:</td>
-                <td style="padding: 8px 0; font-weight: bold; color: {status_color};">{status_text}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Trip Discrepancies:</td>
-                <td style="padding: 8px 0;">{trip_diffs} rows in ola_audit_diff_crns</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Ledger Discrepancies:</td>
-                <td style="padding: 8px 0;">{txn_diffs} rows in ola_audit_diff_transactions</td>
-            </tr>
-        </table>
-    </body>
-    </html>
+    table = f"""
+    <table width="100%" cellpadding="6" cellspacing="0" style="font-size: 13px; color: #202124;">
+        <tr>
+            <td style="font-weight: 600; width: 170px; color: #5f6368;">Audited Week:</td>
+            <td style="font-weight: 700;">{week_start} &rarr; {week_end}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Reconciliation Status:</td>
+            <td><span style="background-color: {status_badge}; padding: 2px 8px; border-radius: 4px; font-weight: 700;">{status_label}</span></td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Trip Differences:</td>
+            <td style="font-weight: 700;">{trip_diffs} rows in ola_audit_diff_crns</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Ledger Differences:</td>
+            <td style="font-weight: 700;">{txn_diffs} rows in ola_audit_diff_transactions</td>
+        </tr>
+    </table>
     """
+
+    cta = ""
+    if public_url:
+        cta = f"""
+        <div style="text-align: center; margin-top: 22px;">
+            <a href="{public_url}" style="background-color: #1a73e8; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 700; display: inline-block; box-shadow: 0 2px 6px rgba(26,115,232,0.25);">📊 View Audited Statement (.xlsx)</a>
+        </div>
+        """
+
+    html = _get_base_template("AUDIT", title, subtitle, table, cta)
     return _send_email(subject, html, recipient_email, logger=logger)
 
 def send_failure_alert(
@@ -164,41 +239,35 @@ def send_failure_alert(
     recipient_email: str = DEFAULT_RECIPIENT,
     logger=print
 ) -> bool:
-    """Dispatches a red alert email when statement download/ingestion fails."""
-    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
-    subject = f"⚠️ [FAILURE] LetzRyd Ola Ingestion Failed ({date_range_start} to {date_range_end})"
+    """Dispatches a branded red alert email when statement ingestion fails."""
+    subject = f"⚠️ [ALERT] LetzRyd Ola Ingestion Failed ({date_range_start} to {date_range_end})"
+    title = f"Ola Statement Ingestion Incomplete"
+    subtitle = f"The automated pipeline was unable to download the statement from Ola."
 
-    html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-        <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-            <h2 style="color: #721c24; margin: 0 0 10px 0;">⚠️ Ola Pipeline Ingestion Alert</h2>
-            <p style="margin: 0; font-size: 14px;">An automated statement ingestion run for LetzRyd was unable to complete.</p>
-        </div>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold; width: 180px;">Target Date Window:</td>
-                <td style="padding: 8px 0;">{date_range_start} &rarr; {date_range_end}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Timestamp:</td>
-                <td style="padding: 8px 0;">{now_str}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Failure Reason:</td>
-                <td style="padding: 8px 0; color: #c82333;">{error_message}</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px 0; font-weight: bold;">Database Status:</td>
-                <td style="padding: 8px 0;">Previous records 100% safe; zero corrupted records written.</td>
-            </tr>
-        </table>
-
-        <div style="background-color: #e2e3e5; padding: 12px; border-radius: 4px; font-size: 13px; color: #383d41;">
-            <strong>Next Action:</strong> The self-healing cumulative pipeline will automatically attempt to backfill and ingest this date window during the next scheduled trigger.
-        </div>
-    </body>
-    </html>
+    table = f"""
+    <table width="100%" cellpadding="6" cellspacing="0" style="font-size: 13px; color: #202124;">
+        <tr>
+            <td style="font-weight: 600; width: 170px; color: #5f6368;">Target Date Window:</td>
+            <td style="font-weight: 700;">{date_range_start} &rarr; {date_range_end}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Failure Reason:</td>
+            <td style="font-weight: 700; color: #c5221f;">{error_message}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Database Protection:</td>
+            <td><span style="background-color: #ceead6; color: #0d652d; padding: 2px 8px; border-radius: 4px; font-weight: 600;">SAFE & UNTOUCHED</span></td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: #5f6368;">Recovery Action:</td>
+            <td>Self-healing cumulative backfill will run automatically on the next scheduled trigger.</td>
+        </tr>
+    </table>
     """
+
+    html = _get_base_template("FAILURE", title, subtitle, table, "")
     return _send_email(subject, html, recipient_email, logger=logger)
+
+if __name__ == "__main__":
+    print("Testing branded email templates...")
+    send_success_notification("2026-08-17", "2026-08-23", 6129, 886, "https://storage.googleapis.com/letzryd-ola-raw-statements/statements/2026/08/ola_statement_2026-08-25.xlsx", 28.5)
