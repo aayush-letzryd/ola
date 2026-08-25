@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Tuple, Optional
 from google.cloud import storage
 from pathlib import Path
+from dotenv import load_dotenv
 
 env_path = Path(__file__).parent / ".env"
 if not env_path.exists():
