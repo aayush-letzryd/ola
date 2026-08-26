@@ -23,4 +23,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-CMD ["python", "ola_master_pipeline.py"]
+ENTRYPOINT ["python", "ola_master_pipeline.py"]
