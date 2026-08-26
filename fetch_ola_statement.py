@@ -301,14 +301,29 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             user_data_dir=PROFILE_DIR,
             headless=is_headless,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-            permissions=["geolocation"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
+            ],
+            permissions=["geolocation", "notifications"],
             geolocation={"latitude": 12.9716, "longitude": 77.5946},
+            locale="en-IN",
+            timezone_id="Asia/Kolkata",
             accept_downloads=True,
             downloads_path=DOWNLOAD_DIR,   # route browser downloads → ola_downloads/
-            viewport={"width": 1280, "height": 800},
+            viewport={"width": 1366, "height": 768},
         )
         page = context.pages[0] if context.pages else context.new_page()
+
+        # Inject stealth anti-detection overrides
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-IN', 'en-US', 'en']});
+        """)
 
         # ── STEP 1-7: Login & Session Authentication Loop ──────────────────────
         logged_in = False
@@ -429,15 +444,49 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
             logger(f"[FETCH] Current URL post sign-in: {page.url}")
 
-            # Try navigating to Accounting Details up to 3 times
+            # Try navigating to Accounting Details naturally (Dashboard "Know More" -> Sidebar -> Direct URL)
             reached = False
             for goto_attempt in range(1, 4):
                 logger(f"[FETCH] Navigating to Accounting Details (try {goto_attempt}/3)...")
-                try:
-                    page.goto(ACCOUNTING_URL, timeout=60000, wait_until="networkidle")
-                except Exception as nav_err:
-                    logger(f"[FETCH] goto networkidle error (non-fatal): {nav_err}")
-                page.wait_for_timeout(4000)
+
+                # If on Dashboard, simulate human scroll and click "Know More" in Accounting Details card
+                if "accounting" not in page.url.lower() and "login" not in page.url.lower():
+                    logger(f"[FETCH] Currently on Dashboard ({page.url}). Simulating human scroll & finding 'Know More'...")
+                    try:
+                        page.wait_for_timeout(1500)
+                        page.mouse.wheel(0, 300)
+                        page.wait_for_timeout(1000)
+
+                        # Look for "Know More" link in Accounting card
+                        know_more = page.locator("a:has-text('Know More'), button:has-text('Know More'), .know-more").first
+                        if know_more.is_visible(timeout=3000):
+                            know_more.hover()
+                            page.wait_for_timeout(500)
+                            know_more.click()
+                            logger("[FETCH] ✓ Clicked 'Know More' in Accounting Details card!")
+                            page.wait_for_timeout(4000)
+                    except Exception as km_err:
+                        logger(f"[FETCH] 'Know More' click warning: {km_err}")
+
+                # If still not on accounting page, try sidebar "Accounting" or "Banking"
+                if "accounting" not in page.url.lower() and "login" not in page.url.lower():
+                    try:
+                        sidebar_btn = page.locator("a:has-text('Accounting'), div:has-text('Accounting'), span:has-text('Accounting')").first
+                        if sidebar_btn.is_visible(timeout=2000):
+                            sidebar_btn.click()
+                            logger("[FETCH] Clicked 'Accounting' in sidebar menu")
+                            page.wait_for_timeout(3000)
+                    except Exception:
+                        pass
+
+                # Fallback: direct goto if still not reached
+                if "accounting" not in page.url.lower():
+                    try:
+                        page.goto(ACCOUNTING_URL, timeout=60000, wait_until="networkidle")
+                    except Exception as nav_err:
+                        logger(f"[FETCH] goto networkidle error (non-fatal): {nav_err}")
+                    page.wait_for_timeout(4000)
+
                 ss(page, f"06_accounting_page_attempt_{login_attempt}_goto{goto_attempt}", logger)
                 if "login" not in page.url.lower():
                     logger("[FETCH] ✓ Successfully reached Accounting Details page!")
@@ -769,10 +818,48 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             except Exception:
                 pass
 
+            # Helper for timed 3-burst email submission & IMAP polling (with 12:01 PM burst support)
+            def _poll_with_timed_burst(burst_wait_s: int = 600, total_s: int = 2400) -> Optional[str]:
+                lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 1 submitted → Polling IMAP for up to {burst_wait_s // 60} minutes...")
+                res1 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst_wait_s)
+                if res1:
+                    lgr(f"[FETCH] [{attempt_label}] ✓ Statement captured on Burst 1 ({res1})")
+                    return res1
+
+                # Burst 1 timed out -> Fire Burst 2 on Ola portal
+                lgr(f"[FETCH] [{attempt_label}] ⚡ No email within {burst_wait_s // 60} mins. Re-triggering Burst 2 on Ola portal...")
+                try:
+                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000)
+                    pg.wait_for_timeout(2000)
+                    _handle_email_modal(pg, EMAIL, lgr)
+                except Exception as _be:
+                    lgr(f"[FETCH] [{attempt_label}] Burst 2 submission warning: {_be}")
+
+                # Poll for up to 14 minutes before firing Burst 3 (at ~12:01 PM in Attempt 2)
+                burst3_wait_s = 840 # 14 minutes
+                lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 2 submitted → Polling IMAP for up to {burst3_wait_s // 60} minutes...")
+                res2 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst3_wait_s)
+                if res2:
+                    lgr(f"[FETCH] [{attempt_label}] ✓ Statement captured on Burst 2 ({res2})")
+                    return res2
+
+                # Burst 2 timed out -> Fire Burst 3 on Ola portal (12:01 PM push)
+                lgr(f"[FETCH] [{attempt_label}] ⚡ No email after 14 mins. Re-triggering Burst 3 on Ola portal (12:01 PM push)...")
+                try:
+                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000)
+                    pg.wait_for_timeout(2000)
+                    _handle_email_modal(pg, EMAIL, lgr)
+                except Exception as _be3:
+                    lgr(f"[FETCH] [{attempt_label}] Burst 3 submission warning: {_be3}")
+
+                rem_s = max(total_s - burst_wait_s - burst3_wait_s, 600)
+                lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 3 submitted → Polling IMAP for remaining {rem_s // 60} minutes...")
+                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=rem_s)
+
             # Check if email modal appeared right after clicking DOWNLOAD STATEMENT
             if _handle_email_modal(pg, EMAIL, lgr):
-                lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-click) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
+                lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-click) → starting timed burst polling...")
+                return _poll_with_timed_burst(burst_wait_s=600, total_s=2400)
 
             # Dismiss OKAY/CONFIRM popup if present
             for popup_text in ["OKAY", "Okay", "OK", "CONFIRM", "Confirm"]:
@@ -791,8 +878,8 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
             # Check again if email modal appeared after dismissing okay
             if _handle_email_modal(pg, EMAIL, lgr):
-                lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-okay) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
+                lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-okay) → starting timed burst polling...")
+                return _poll_with_timed_burst(burst_wait_s=600, total_s=2400)
 
             # Wait briefly for direct browser download event
             wait_start = time.time()
