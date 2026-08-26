@@ -195,12 +195,12 @@ def load_ola_statement_to_postgres(
         df_txns = pd.read_excel(file_path, sheet_name=txn_sheet)
         logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet.")
 
-        # Scoped Delete for target week
+        # Scoped Delete for target week (cleans previous cumulative snapshots for this week)
         cur.execute(
-            "DELETE FROM ola_raw_transactions WHERE week_start = %s AND week_end = %s;",
-            (week_start, week_end)
+            "DELETE FROM ola_raw_transactions WHERE week_start = %s;",
+            (week_start,)
         )
-        logger(f"[DB Loader] Cleaned previous staging rows for ({week_start} to {week_end}) in 'ola_raw_transactions'.")
+        logger(f"[DB Loader] Cleaned previous staging rows for week_start={week_start} in 'ola_raw_transactions'.")
 
         txn_records = []
         for idx, row in df_txns.iterrows():
