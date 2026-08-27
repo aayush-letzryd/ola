@@ -125,18 +125,36 @@ def fetch_otp_after_request(initial_otp, initial_date, wait_seconds=3, timeout=3
 
     Strategy:
       - Wait up to `timeout` seconds (default 5 min) for a new OTP to appear.
-      - No Resend button clicks — if OTP doesn't arrive, the caller (login loop)
-        will reload the page and request a new OTP from scratch.
+      - OTP is considered FRESH only if it was received within the last 3 minutes
+        (prevents accepting a stale OTP from a previous login session).
       - Polls every 3 seconds.
     """
     logger(f"[OTP] Polling Google Sheet for new OTP on {PHONE_NUMBER} (timeout: {timeout}s)...")
     time.sleep(wait_seconds)
     start = time.time()
 
+    def _is_fresh_otp(date_str: str, max_age_minutes: int = 3) -> bool:
+        """Return True if the OTP timestamp in the sheet is within max_age_minutes from now."""
+        try:
+            # Sheet timestamp format: "August 27 2026 at 01:03PM"
+            parsed = datetime.strptime(date_str.strip(), "%B %d %Y at %I:%M%p")
+            age_minutes = (datetime.now() - parsed).total_seconds() / 60
+            return 0 <= age_minutes <= max_age_minutes
+        except Exception:
+            # If we can't parse the timestamp, fall back to checking if it's different from initial
+            return date_str != initial_date
+
     while time.time() - start < timeout:
         otp, date_str, _ = get_current_otp_from_sheet()
-        if otp and (otp != initial_otp or date_str != initial_date):
+
+        # Accept OTP only if it's genuinely fresh (within 3 minutes) AND different from initial
+        if otp and otp != initial_otp and date_str and _is_fresh_otp(date_str):
             logger(f"[OTP] ✓ Got fresh OTP: {otp} (at {date_str})")
+            return otp
+
+        # Also accept if it's the same OTP value but clearly a brand new timestamp (within 3 min)
+        if otp and otp == initial_otp and date_str and _is_fresh_otp(date_str, max_age_minutes=1):
+            logger(f"[OTP] ✓ Got fresh OTP (same value, new timestamp): {otp} (at {date_str})")
             return otp
 
         elapsed = int(time.time() - start)
