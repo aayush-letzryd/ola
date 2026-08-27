@@ -6,18 +6,18 @@ Master Orchestrator for Daily Ingestion & Tuesday Audit Reconciliation.
 Execution Modes:
 ----------------
 1. Daily Sync Mode (Runs Daily at 10:35 AM):
-   - On Monday: Downloads completed prior week (Monday to Sunday).
-   - On Tuesday-Sunday: Downloads cumulative week-to-date (Monday to Yesterday).
+   - Every day: Downloads YESTERDAY only via the native 'Yesterday' preset (instant direct download, no email needed).
+   - Day-by-day accumulation: Each run appends one day's rides & ledger cleanly into PostgreSQL.
    - Downloads statement, uploads to GCS, ingests to ola_raw_crns & ola_raw_transactions, logs to ola_ingestion_log.
 
 2. Tuesday Audit Reconciliation Mode (Runs Tuesday at 08:00 AM):
-   - Re-downloads completed prior week (Monday to Sunday).
+   - Re-downloads completed prior week (Monday to Sunday) via Custom Date multi-day export.
    - Compares with Monday's statement file.
    - Populates ola_audit_diff_crns & ola_audit_diff_transactions.
 
 Commands:
 ---------
-# Normal automated daily sync (auto-detects date range):
+# Normal automated daily sync (auto-detects yesterday):
 python ola_master_pipeline.py
 
 # Force Tuesday Audit run:
@@ -53,19 +53,19 @@ def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 def calculate_daily_date_range(target_d: Optional[date] = None) -> Tuple[date, date, str]:
+    """
+    Daily Sync Strategy: Always download YESTERDAY only via the native
+    'Yesterday' preset on Ola portal (instant direct browser download, no email needed).
+    
+    Each day's data accumulates in the DB day-by-day:
+    - Rides (ola_raw_crns): ON CONFLICT (crn) DO UPDATE — zero duplicates ever.
+    - Ledger (ola_raw_transactions): Scoped daily replace (stmt_date) — clean daily accumulation.
+    - Tuesday Audit: Still runs on full prior week for 100% financial reconciliation.
+    """
     today = target_d or date.today()
-    weekday = today.weekday() # 0 = Monday, 1 = Tuesday, ..., 6 = Sunday
-
-    if weekday == 0: # Monday: Completed prior week (Monday to Sunday)
-        w_start = today - timedelta(days=7)
-        w_end = today - timedelta(days=1)
-        desc = f"Monday Weekly Settlement Sync ({w_start} to {w_end})"
-    else: # Tuesday to Sunday: Cumulative week-to-date (Current Monday to Yesterday)
-        w_start = today - timedelta(days=weekday)
-        w_end = today - timedelta(days=1)
-        desc = f"Cumulative Week-to-Date Sync ({w_start} to {w_end})"
-
-    return w_start, w_end, desc
+    yesterday = today - timedelta(days=1)
+    desc = f"Daily Yesterday Sync ({yesterday})"
+    return yesterday, yesterday, desc
 
 def calculate_prior_week_dates(target_d: Optional[date] = None) -> Tuple[date, date]:
     today = target_d or date.today()

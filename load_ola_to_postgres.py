@@ -189,18 +189,19 @@ def load_ola_statement_to_postgres(
         logger(f"[DB Loader] [SUCCESS] Upserted {len(crn_records)} trips into 'ola_raw_crns'.")
 
         # -------------------------------------------------------------------
-        # 2. Ingest RawTransactions (Scoped Week Replace)
+        # 2. Ingest RawTransactions (Daily Replace — Yesterday-Only Mode)
         # -------------------------------------------------------------------
         txn_sheet = [s for s in xl.sheet_names if "trans" in s.lower() or "acc" in s.lower()][0]
         df_txns = pd.read_excel(file_path, sheet_name=txn_sheet)
         logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet.")
 
-        # Scoped Delete for target week (cleans previous cumulative snapshots for this week)
+        # Scoped Daily Delete: Only wipe rows for this specific date (stmt_date).
+        # This preserves ALL previous days' ledger rows so they accumulate cleanly.
         cur.execute(
-            "DELETE FROM ola_raw_transactions WHERE week_start = %s;",
-            (week_start,)
+            "DELETE FROM ola_raw_transactions WHERE stmt_date = %s;",
+            (week_end,)  # week_end == yesterday in Yesterday-only daily mode
         )
-        logger(f"[DB Loader] Cleaned previous staging rows for week_start={week_start} in 'ola_raw_transactions'.")
+        logger(f"[DB Loader] Cleaned previous staging rows for stmt_date={week_end} in 'ola_raw_transactions'.")
 
         txn_records = []
         for idx, row in df_txns.iterrows():
