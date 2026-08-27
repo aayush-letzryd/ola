@@ -65,7 +65,7 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 | :- | :--- | :--- | :--- |
 | **1** | **`ola_ingestion_log`** | Master execution history with public Cloud Storage download links. | Append `INSERT` per run. |
 | **2** | **`ola_raw_crns`** | Master trip table (all 26 raw columns from `RawCrns`). | **Atomic UPSERT (`ON CONFLICT (crn) DO UPDATE`)** |
-| **3** | **`ola_raw_transactions`** | Master financial ledger (all 9 raw columns from `RawTransactions`). | **Scoped Daily Replace (`DELETE WHERE stmt_date = %s` $\rightarrow$ `Batch INSERT`)** |
+| **3** | **`ola_raw_transactions`** | Master financial ledger (all 9 raw columns from `RawTransactions`). | **Scoped Daily Replace (`DELETE WHERE date_for BETWEEN %s AND %s` $\rightarrow$ `Batch INSERT`)** |
 | **4** | **`ola_audit_diff_crns`** | Tuesday Trip Differences vs Monday (tolls, fares, cash). | Diff `INSERT` with `status = 'PENDING'`. |
 | **5** | **`ola_audit_diff_transactions`** | Tuesday Ledger Differences vs Monday (incentives, fees). | **Bucket Matching Algorithm** with `status = 'PENDING'`. |
 
@@ -76,7 +76,7 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 * **Daily Ingestion (Mon–Sun @ 10:35 AM):**
   * **Every Day:** Downloads **`Yesterday`** only via the native preset for instant direct browser `.xlsx` download (~20 seconds, zero email dependency).
   * Rides are upserted with zero duplicates (`ON CONFLICT`).
-  * Ledger entries accumulate day-by-day with scoped daily refresh (`WHERE stmt_date = yesterday`).
+  * Ledger entries accumulate day-by-day with scoped daily refresh (`WHERE date_for = yesterday`).
 * **Tuesday Audit Reconciliation (Tuesdays @ 08:00 AM):**
   * Re-downloads completed prior week (`Monday to Sunday` 7 days).
   * Compares against Monday's baseline file to catch late toll adjustments, disputes, and bonus credits.

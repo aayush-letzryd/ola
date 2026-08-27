@@ -4,7 +4,9 @@ fetch_ola_browser_use.py
 Production-Grade AI-Powered Ola Statement Downloader using Browser-Use and Gemini Flash.
 
 Fully Implements the Automated Ola Report Downloader Process Specification:
-1. Schedule & Daywise Date Calculation Engine (Monday, Tuesday dual-runs, Wed-Sun cumulative).
+1. Schedule & Date Calculation Engine:
+   - Daily Sync (Mon-Sun): Downloads YESTERDAY only (single day).
+   - Tuesday Audit: Downloads full prior week (Monday to Sunday 7 days).
 2. Clean Page Load Pacing (minimum_wait_page_load_time=4.5s eliminates awkward reload stutter loops).
 3. Google Sheet SMS Relay Ingestion (1KrJ022-...) with Incorrect OTP Self-Healing ("Resend OTP" recovery).
 4. Accounting Page Navigation & Date Selection.
@@ -18,9 +20,9 @@ Fully Implements the Automated Ola Report Downloader Process Specification:
 6. File Verification & Workbook Schema Validation (Checks >0 bytes, non-corrupt, sheets 'RawCrns' & 'RawTransactions').
 7. Standardized Renaming & SHA-256 Archival Deduplication.
 8. 2-Attempt Retry Strategy:
-   - Attempt 1 (11:00 AM): 3-burst request + 30-minute IMAP polling.
-   - Cooldown: 45-60 minutes.
-   - Attempt 2 (12:00 PM): Inbox-first check -> 1 fresh attempt + 30-minute poll -> Critical Alert on failure.
+   - Attempt 1: 3-burst request + 30-minute IMAP polling.
+   - Cooldown: 20 minutes.
+   - Attempt 2: Inbox-first check -> 1 fresh attempt + 30-minute poll -> Critical Alert on failure.
 """
 
 import os
@@ -90,63 +92,32 @@ def calculate_date_range_for_day(
     today = ref_date or datetime.today()
     day_name = (day_override or today.strftime("%A")).lower()
 
-    if day_name == "monday":
+    if day_name == "tuesday_audit":
         last_mon = today - timedelta(days=today.weekday() + 7)
         last_sun = last_mon + timedelta(days=6)
         return [{
-            "run_name": "Monday Run (Previous Week Lock)",
+            "run_name": "Tuesday Audit (Prior Week)",
             "from_date": last_mon,
             "to_date": last_sun,
             "from_str": last_mon.strftime("%Y-%m-%d"),
             "to_str": last_sun.strftime("%Y-%m-%d"),
             "from_human": last_mon.strftime("%d %B %Y"),
             "to_human": last_sun.strftime("%d %B %Y"),
-            "purpose": "Downloads full 7-day previous week to lock and finalize driver payouts."
+            "purpose": "Re-downloads full 7-day prior week for automated Tuesday reconciliation vs Monday baseline."
         }]
 
-    elif day_name in ["tuesday", "tuesday_run1", "tuesday_run2"]:
-        runs = []
-        yesterday_mon = today - timedelta(days=1)
-        last_mon = today - timedelta(days=8)
-        last_sun = today - timedelta(days=2)
-
-        if day_name in ["tuesday", "tuesday_run1"]:
-            runs.append({
-                "run_name": "Tuesday Run 1 (Current Week Sync)",
-                "from_date": yesterday_mon,
-                "to_date": yesterday_mon,
-                "from_str": yesterday_mon.strftime("%Y-%m-%d"),
-                "to_str": yesterday_mon.strftime("%Y-%m-%d"),
-                "from_human": yesterday_mon.strftime("%d %B %Y"),
-                "to_human": yesterday_mon.strftime("%d %B %Y"),
-                "purpose": "Starts tracking the ongoing week (Monday single day)."
-            })
-        if day_name in ["tuesday", "tuesday_run2"]:
-            runs.append({
-                "run_name": "Tuesday Run 2 (Audit Check)",
-                "from_date": last_mon,
-                "to_date": last_sun,
-                "from_str": last_mon.strftime("%Y-%m-%d"),
-                "to_str": last_sun.strftime("%Y-%m-%d"),
-                "from_human": last_mon.strftime("%d %B %Y"),
-                "to_human": last_sun.strftime("%d %B %Y"),
-                "purpose": "Re-downloads last week to run automated difference checks vs Monday numbers."
-            })
-        return runs
-
-    else:
-        curr_mon = today - timedelta(days=today.weekday())
-        yesterday = today - timedelta(days=1)
-        return [{
-            "run_name": f"{day_name.capitalize()} Run (Current Week Cumulative)",
-            "from_date": curr_mon,
-            "to_date": yesterday,
-            "from_str": curr_mon.strftime("%Y-%m-%d"),
-            "to_str": yesterday.strftime("%Y-%m-%d"),
-            "from_human": curr_mon.strftime("%d %B %Y"),
-            "to_human": yesterday.strftime("%d %B %Y"),
-            "purpose": f"Cumulative sync from Monday ({curr_mon.strftime('%d %b')}) to Yesterday ({yesterday.strftime('%d %b')})."
-        }]
+    # Default Daily Mode: Always download YESTERDAY only
+    yesterday = today - timedelta(days=1)
+    return [{
+        "run_name": f"Daily Ingestion ({yesterday.strftime('%Y-%m-%d')})",
+        "from_date": yesterday,
+        "to_date": yesterday,
+        "from_str": yesterday.strftime("%Y-%m-%d"),
+        "to_str": yesterday.strftime("%Y-%m-%d"),
+        "from_human": yesterday.strftime("%d %B %Y"),
+        "to_human": yesterday.strftime("%d %B %Y"),
+        "purpose": f"Daily single-day ingestion for yesterday ({yesterday.strftime('%d %b %Y')})."
+    }]
 
 # ---------------------------------------------------------------------------
 # SMS OTP Google Sheet Relay Ingestion

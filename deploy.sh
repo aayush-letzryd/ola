@@ -80,6 +80,7 @@ gcloud scheduler jobs create http ola-tuesday-audit-trigger \
   --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
   --http-method=POST \
   --message-body='{"overrides":{"containerOverrides":[{"args":["--tuesday-audit"]}]}}' \
+  --headers="Content-Type=application/json" \
   --oauth-service-account-email="${SERVICE_ACCOUNT}" \
   --description="Ola Tuesday 8:00 AM Reconciliation Audit Trigger" || \
 gcloud scheduler jobs update http ola-tuesday-audit-trigger \
@@ -89,6 +90,7 @@ gcloud scheduler jobs update http ola-tuesday-audit-trigger \
   --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
   --http-method=POST \
   --message-body='{"overrides":{"containerOverrides":[{"args":["--tuesday-audit"]}]}}' \
+  --update-headers="Content-Type=application/json" \
   --oauth-service-account-email="${SERVICE_ACCOUNT}"
 
 echo "================================================================================"

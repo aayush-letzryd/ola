@@ -136,13 +136,25 @@ def fetch_otp_after_request(initial_otp, initial_date, wait_seconds=3, timeout=3
     def _is_fresh_otp(date_str: str, max_age_minutes: int = 3) -> bool:
         """Return True if the OTP timestamp in the sheet is within max_age_minutes from now."""
         try:
-            # Sheet timestamp format: "August 27 2026 at 01:03PM"
-            parsed = datetime.strptime(date_str.strip(), "%B %d %Y at %I:%M%p")
-            age_minutes = (datetime.now() - parsed).total_seconds() / 60
-            return 0 <= age_minutes <= max_age_minutes
+            # Sheet timestamp format: "August 27 2026 at 01:03PM" / "August 27, 2026 at 1:03 PM" / ISO
+            cleaned = date_str.strip().replace(",", "")
+            for fmt in [
+                "%B %d %Y at %I:%M%p",
+                "%B %d %Y at %I:%M %p",
+                "%Y-%m-%d %H:%M:%S",
+                "%d/%m/%Y %H:%M:%S",
+                "%d-%m-%Y %H:%M:%S",
+            ]:
+                try:
+                    parsed = datetime.strptime(cleaned, fmt)
+                    age_minutes = (datetime.now() - parsed).total_seconds() / 60
+                    return 0 <= age_minutes <= max_age_minutes
+                except ValueError:
+                    continue
         except Exception:
-            # If we can't parse the timestamp, fall back to checking if it's different from initial
-            return date_str != initial_date
+            pass
+        # If we can't parse the timestamp, fall back to checking if it's different from initial
+        return date_str != initial_date
 
     while time.time() - start < timeout:
         otp, date_str, _ = get_current_otp_from_sheet()
@@ -987,7 +999,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
         if not saved_path:
             raise RuntimeError(
-                "Download failed after all 5 attempts (2× Custom Date + Today + Custom Date + Today). "
+                f"Download failed after all {len(attempt_sequence)} attempts. "
                 "No direct download and no email report received."
             )
 

@@ -5,7 +5,7 @@ Production PostgreSQL Loader & Tuesday Audit Reconciliation Engine.
 
 Loads:
 1. ola_raw_crns (Using ON CONFLICT (crn) DO UPDATE + synthetic fallback for null CRNs)
-2. ola_raw_transactions (Using Scoped Week Replace: DELETE WHERE week_start AND week_end -> Batch INSERT)
+2. ola_raw_transactions (Using Scoped Daily / Date Range Replace: DELETE WHERE date_for BETWEEN %s AND %s -> Batch INSERT)
 3. ola_ingestion_log (Master execution history with public GCS download URLs)
 4. ola_audit_diff_crns (Tuesday Trip Differences vs Monday)
 5. ola_audit_diff_transactions (Tuesday Financial Ledger Differences vs Monday using Bucket Matching)
@@ -192,17 +192,18 @@ def load_ola_statement_to_postgres(
         # 2. Ingest RawTransactions (Daily Replace — Yesterday-Only Mode)
         # -------------------------------------------------------------------
         txn_sheet = [s for s in xl.sheet_names if "trans" in s.lower() or "acc" in s.lower()][0]
+        df_txns = pd.read_excel(file_path, sheet_name=txn_sheet)
         # Clean column names by stripping any leading/trailing whitespace (e.g. ' Date' -> 'Date')
         df_txns.columns = [str(c).strip() for c in df_txns.columns]
         logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet. Cleaned columns: {df_txns.columns.tolist()}")
 
-        # Scoped Daily Delete: Only wipe rows for this specific operational date (date_for).
-        # This preserves ALL previous days' ledger rows so they accumulate cleanly.
+        # Scoped Delete: Wipe existing rows for the target operational date range (date_for BETWEEN week_start AND week_end).
+        # In Yesterday-only daily mode (week_start == week_end), this preserves ALL other days so they accumulate cleanly.
         cur.execute(
-            "DELETE FROM ola_raw_transactions WHERE date_for = %s;",
-            (week_end,)  # week_end == yesterday in Yesterday-only daily mode
+            "DELETE FROM ola_raw_transactions WHERE date_for BETWEEN %s AND %s;",
+            (week_start, week_end)
         )
-        logger(f"[DB Loader] Cleaned previous staging rows for date_for={week_end} in 'ola_raw_transactions'.")
+        logger(f"[DB Loader] Cleaned previous staging rows for date_for between {week_start} and {week_end} in 'ola_raw_transactions'.")
 
         txn_records = []
         for idx, row in df_txns.iterrows():
@@ -319,8 +320,16 @@ def run_tuesday_audit_reconciliation(
     logger(f"  Tuesday Audit:    {os.path.basename(tuesday_file_path)}")
 
     # 1. Reconcile Trips (RawCrns - 360 Degree Comparison)
-    df_mon_crns = pd.read_excel(monday_file_path, sheet_name="RawCrns")
-    df_tue_crns = pd.read_excel(tuesday_file_path, sheet_name="RawCrns")
+    xl_mon = pd.ExcelFile(monday_file_path)
+    xl_tue = pd.ExcelFile(tuesday_file_path)
+
+    mon_crn_sheet = [s for s in xl_mon.sheet_names if "crn" in s.lower()][0]
+    tue_crn_sheet = [s for s in xl_tue.sheet_names if "crn" in s.lower()][0]
+
+    df_mon_crns = pd.read_excel(monday_file_path, sheet_name=mon_crn_sheet)
+    df_tue_crns = pd.read_excel(tuesday_file_path, sheet_name=tue_crn_sheet)
+    df_mon_crns.columns = [str(c).strip() for c in df_mon_crns.columns]
+    df_tue_crns.columns = [str(c).strip() for c in df_tue_crns.columns]
 
     df_mon_crns["crn_clean"] = df_mon_crns["CRN"].astype(str).str.strip()
     df_tue_crns["crn_clean"] = df_tue_crns["CRN"].astype(str).str.strip()
@@ -404,8 +413,13 @@ def run_tuesday_audit_reconciliation(
         ))
 
     # 2. Reconcile Transactions (RawTransactions - Bucket Matching)
-    df_mon_txns = pd.read_excel(monday_file_path, sheet_name="RawTransactions")
-    df_tue_txns = pd.read_excel(tuesday_file_path, sheet_name="RawTransactions")
+    mon_txn_sheet = [s for s in xl_mon.sheet_names if "trans" in s.lower() or "acc" in s.lower()][0]
+    tue_txn_sheet = [s for s in xl_tue.sheet_names if "trans" in s.lower() or "acc" in s.lower()][0]
+
+    df_mon_txns = pd.read_excel(monday_file_path, sheet_name=mon_txn_sheet)
+    df_tue_txns = pd.read_excel(tuesday_file_path, sheet_name=tue_txn_sheet)
+    df_mon_txns.columns = [str(c).strip() for c in df_mon_txns.columns]
+    df_tue_txns.columns = [str(c).strip() for c in df_tue_txns.columns]
 
     def _prepare_buckets(df):
         records = []

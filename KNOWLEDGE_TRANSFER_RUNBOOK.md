@@ -36,25 +36,25 @@ This automation system is a **100% serverless, zero-maintenance data pipeline** 
                                   ┌────────────────────────────────────────────────┐
                                   │       Google Cloud Run Jobs (Serverless)       │
                                   │           Container: 'ola-sync-job'            │
-                                  │           Image: asia-south1-docker            │
                                   └───────────────────────┬────────────────────────┘
                                                           │
-                   ┌──────────────────────────────────────┴──────────────────────────────────────┐
-                   ▼                                                                             ▼
-    ┌──────────────────────────────┐                                              ┌──────────────────────────────┐
-    │       Authentication         │                                              │      Dual-Engine Scraper     │
-    │  • SMSOLA Google Sheet Relay │                                              │  • Engine 1: Playwright      │
-    │  • Baseline OTP Polling      │                                              │  • Engine 2: Gemini Flash AI │
-    │  • Auto-relogin & Session    │                                              │  • 40m IMAP Gmail Polling    │
-    └──────────────┬───────────────┘    ## 📅 3. Day-of-Week Calculation & Scraper Matrix
- 
+    ┌──────────────────────────────┐                      │                      ┌──────────────────────────────┐
+    │       Authentication         │◄─────────────────────┘                      │      Dual-Engine Scraper     │
+    │  • SMSOLA Google Sheet Relay │                                             │  • Engine 1: Playwright      │
+    │  • Baseline OTP Polling      │                                             │  • Engine 2: Gemini Flash AI │
+    │  • Auto-relogin & Session    │                                             │  • 40m IMAP Gmail Polling    │
+    └──────────────────────────────┘                                             └──────────────────────────────┘
+```
+
+## 📅 3. Day-of-Week Calculation & Scraper Matrix
+
 | Day of Week | Date Range Requested | Scraper Selection Method | Business Purpose |
 | :--- | :--- | :--- | :--- |
 | **Mon – Sun (Daily 10:35 AM)** | Yesterday (Single Day) | **`Yesterday` Preset** | Instant direct .xlsx download (~20s) with daily accumulation |
 | **Tuesday (Audit 08:00 AM)** | Prior Mon $\rightarrow$ Sun (7 Days) | **`Custom Date` (Exact)** | Audits Monday baseline vs final Tuesday settlement |
 
 ### 🛡️ The Daily Accumulation & Reconciliation Guarantee:
-* **Daily Ingestion:** Every morning at 10:35 AM, the bot downloads **`Yesterday`** via the direct preset. Rides are deduplicated via `ON CONFLICT (crn) DO UPDATE` in `ola_raw_crns`. Financial transactions are cleanly refreshed for that single day (`WHERE stmt_date = yesterday`) in `ola_raw_transactions`.
+* **Daily Ingestion:** Every morning at 10:35 AM, the bot downloads **`Yesterday`** via the direct preset. Rides are deduplicated via `ON CONFLICT (crn) DO UPDATE` in `ola_raw_crns`. Financial transactions are cleanly refreshed for that single day (`WHERE date_for = yesterday`) in `ola_raw_transactions`.
 * **Tuesday Audit:** Every Tuesday at 8:00 AM, the pipeline automatically pulls the full 7-day prior week statement, compares it line-by-line against Monday's baseline statement, identifies any retroactive toll/fare/incentive changes, populates `ola_audit_diff_crns` and `ola_audit_diff_transactions`, and emails the audit report to leadership.
 * **Cumulative Mode Backup:** The previous multi-day cumulative code is preserved in git branch `backup-cumulative-mode`.
 
@@ -70,22 +70,7 @@ All tables reside in PostgreSQL instance `35.200.196.113:5432 / postgres`:
 * **Columns:** `crn (PK), stmt_date, vehicle_number, driver_name, driver_number, completion_status, customer_bill_raw, paid_by_ola_money_raw, operator_bill_raw, peak_pricing_raw, ride_earnings_raw, tds_raw, toll_parking_raw, cash_collected_by_driver_raw, ola_to_pay, category, pickup_time, actual_kms_raw, trip_time_raw, fare_raw, share_osns, number_of_share_osns, bookings_completed_raw, ride_type, pickup_location, drop_location, week_start, week_end, source_file, created_at`.
 
 ### 2. `ola_raw_transactions` (Financial Ledger Table)
-* **Write Strategy:** Scoped Daily Replace (`DELETE WHERE stmt_date = %s` $\rightarrow$ `Batch INSERT`).
-* **Columns:** `id (PK), stmt_date, transaction_type, vehicle_number, car_model, date_for, amount_raw, transaction_status, sub_category, payment_type, week_start, week_end, source_file, created_at`.ests the full cumulative date range and backfills all missed data without manual intervention!**
-
----
-
-## 🗄️ 4. Production Database Schema (PostgreSQL)
-
-All tables reside in PostgreSQL instance `35.200.196.113:5432 / postgres`:
-
-### 1. `ola_raw_crns` (Rides & Trips Master Table)
-* **Write Strategy:** Atomic `ON CONFLICT (crn) DO UPDATE` (29 columns).
-* **Synthetic Fallback:** Generates `SYNTH_{veh}_{date}_{idx}` if Ola CRN is null on cancellation rows.
-* **Columns:** `crn (PK), stmt_date, vehicle_number, driver_name, driver_number, completion_status, customer_bill_raw, paid_by_ola_money_raw, operator_bill_raw, peak_pricing_raw, ride_earnings_raw, tds_raw, toll_parking_raw, cash_collected_by_driver_raw, ola_to_pay, category, pickup_time, actual_kms_raw, trip_time_raw, fare_raw, share_osns, number_of_share_osns, bookings_completed_raw, ride_type, pickup_location, drop_location, week_start, week_end, source_file, created_at`.
-
-### 2. `ola_raw_transactions` (Financial Ledger Table)
-* **Write Strategy:** Scoped Week Replace (`DELETE WHERE week_start = %s AND week_end = %s` $\rightarrow$ `Batch INSERT`).
+* **Write Strategy:** Scoped Daily / Date Range Replace (`DELETE WHERE date_for BETWEEN %s AND %s` $\rightarrow$ `Batch INSERT`).
 * **Columns:** `id (PK), stmt_date, transaction_type, vehicle_number, car_model, date_for, amount_raw, transaction_status, sub_category, payment_type, week_start, week_end, source_file, created_at`.
 
 ### 3. `ola_ingestion_log` (Master Audit Trail)
@@ -186,7 +171,7 @@ SELECT * FROM ola_audit_diff_transactions ORDER BY id DESC LIMIT 10;
 
 | Issue | Cause | Standard Operating Procedure |
 | :--- | :--- | :--- |
-| **Ola Statement Not Sent to Email** | Peak portal traffic | Attempt 2 automatically fires 2 modal bursts at 11:35 AM. Next morning's cumulative sync automatically captures it. |
+| **Ola Statement Not Sent to Email** | Peak portal traffic | Attempt 2 automatically fires at 11:35 AM. Re-attempt or manual custom date sync captures any pending statement. |
 | **OTP Not Arriving in Sheet** | Macro delay on SMS device | Verify the Android SMS relay device has internet access and Google Sheet permissions. |
 | **Container Skipped in 1 Second** | Smart Idempotency check | Indicates today's data is already in PostgreSQL. If you want to force re-ingestion, run with custom `--from-date` and `--to-date`. |
 | **Tuesday Audit Ran Daily Sync** | Missing request body override | Verify `ola-tuesday-audit-trigger` has `--message-body='{"overrides":{"containerOverrides":[{"args":["--tuesday-audit"]}]}}'`. |

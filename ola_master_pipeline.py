@@ -208,12 +208,19 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
     else:
         # In Cloud Run (stateless): try fetching Monday baseline from GCS bucket!
         from gcs_upload import download_statement_from_gcs
-        # Look for Yesterday's file downloaded on the prior Monday (which IS prior_monday itself)
-        gcs_blob = f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx"
-        local_dest = DOWNLOAD_DIR / f"ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx"
-        if download_statement_from_gcs(gcs_blob, str(local_dest), logger=logger):
-            monday_file = str(local_dest)
-            logger(f"Retrieved Monday Baseline from GCS: {os.path.basename(monday_file)}")
+        today = date.today()
+        yesterday_monday = today - timedelta(days=1 if today.weekday() == 1 else today.weekday())
+        candidate_blobs = [
+            f"statements/{yesterday_monday.year}/{yesterday_monday.strftime('%m')}/ola_statement_{yesterday_monday.strftime('%Y-%m-%d')}.xlsx",
+            f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx",
+            f"statements/{prior_sunday.year}/{prior_sunday.strftime('%m')}/ola_statement_{prior_sunday.strftime('%Y-%m-%d')}.xlsx",
+        ]
+        for gcs_blob in candidate_blobs:
+            local_dest = DOWNLOAD_DIR / os.path.basename(gcs_blob)
+            if download_statement_from_gcs(gcs_blob, str(local_dest), logger=logger):
+                monday_file = str(local_dest)
+                logger(f"Retrieved Monday Baseline from GCS: {os.path.basename(monday_file)}")
+                break
 
     if not monday_file:
         logger("[Audit] No Monday baseline file found in local or GCS. Ingesting today's statement as baseline.")
@@ -276,7 +283,9 @@ def main():
     parser.add_argument("--to-date", help="Custom to date YYYY-MM-DD")
     parser.add_argument("--force-engine", choices=["playwright", "browser_use"], default=None)
 
-    args = parser.parse_args()
+    # Defensive parsing: strip stray wrapper tokens if passed via container overrides
+    filtered_argv = [arg for arg in sys.argv[1:] if not (arg.endswith(".py") or arg == "python")]
+    args, unknown = parser.parse_known_args(filtered_argv)
 
     is_tuesday_audit = args.tuesday_audit or os.environ.get("TUESDAY_AUDIT", "false").lower() == "true"
 

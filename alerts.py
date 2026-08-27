@@ -260,7 +260,7 @@ def send_failure_alert(
         </tr>
         <tr>
             <td style="font-weight: 600; color: #5f6368;">Recovery Action:</td>
-            <td>Self-healing cumulative backfill will run automatically on the next scheduled trigger.</td>
+            <td>Automated retry trigger / next scheduled sync will re-attempt statement extraction automatically.</td>
         </tr>
     </table>
     """
