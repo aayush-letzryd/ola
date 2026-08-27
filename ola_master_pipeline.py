@@ -83,7 +83,7 @@ def check_if_already_ingested(from_d: date, to_d: date, logger=log) -> bool:
         today = date.today()
         cur.execute("""
             SELECT id, total_crns_imported FROM ola_ingestion_log 
-            WHERE date_range_start = %s AND date_range_end = %s 
+            WHERE date_range_start <= %s AND date_range_end >= %s 
               AND status = 'SUCCESS' 
               AND executed_at::date = %s
             ORDER BY id DESC LIMIT 1;

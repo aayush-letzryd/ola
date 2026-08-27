@@ -238,6 +238,7 @@ def verify_and_archive_statement(
 # ---------------------------------------------------------------------------
 async def execute_browser_download_run(
     run_info: Dict[str, Any],
+    attempt_number: int = 1,
     headless: bool = False,
     imap_wait_seconds: int = 1800, # 30 minutes polling window
     logger=print
