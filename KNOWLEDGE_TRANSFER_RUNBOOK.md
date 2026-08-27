@@ -46,34 +46,32 @@ This automation system is a **100% serverless, zero-maintenance data pipeline** 
     │  • SMSOLA Google Sheet Relay │                                              │  • Engine 1: Playwright      │
     │  • Baseline OTP Polling      │                                              │  • Engine 2: Gemini Flash AI │
     │  • Auto-relogin & Session    │                                              │  • 40m IMAP Gmail Polling    │
-    └──────────────┬───────────────┘                                              └──────────────┬───────────────┘
-                   │                                                                             │
-                   └──────────────────────────────────────┬──────────────────────────────────────┘
-                                                          ▼
-                                  ┌────────────────────────────────────────────────┐
-                                  │           Data Processing & Upload             │
-                                  │  • GCS: gs://letzryd-ola-raw-statements/       │
-                                  │  • PostgreSQL: 5 Tables Ingestion & Diffs      │
-                                  │  • Alerts: Branded HTML Email Dispatch         │
-                                  └────────────────────────────────────────────────┘
-```
+    └──────────────┬───────────────┘    ## 📅 3. Day-of-Week Calculation & Scraper Matrix
+ 
+| Day of Week | Date Range Requested | Scraper Selection Method | Business Purpose |
+| :--- | :--- | :--- | :--- |
+| **Mon – Sun (Daily 10:35 AM)** | Yesterday (Single Day) | **`Yesterday` Preset** | Instant direct .xlsx download (~20s) with daily accumulation |
+| **Tuesday (Audit 08:00 AM)** | Prior Mon $\rightarrow$ Sun (7 Days) | **`Custom Date` (Exact)** | Audits Monday baseline vs final Tuesday settlement |
+
+### 🛡️ The Daily Accumulation & Reconciliation Guarantee:
+* **Daily Ingestion:** Every morning at 10:35 AM, the bot downloads **`Yesterday`** via the direct preset. Rides are deduplicated via `ON CONFLICT (crn) DO UPDATE` in `ola_raw_crns`. Financial transactions are cleanly refreshed for that single day (`WHERE stmt_date = yesterday`) in `ola_raw_transactions`.
+* **Tuesday Audit:** Every Tuesday at 8:00 AM, the pipeline automatically pulls the full 7-day prior week statement, compares it line-by-line against Monday's baseline statement, identifies any retroactive toll/fare/incentive changes, populates `ola_audit_diff_crns` and `ola_audit_diff_transactions`, and emails the audit report to leadership.
+* **Cumulative Mode Backup:** The previous multi-day cumulative code is preserved in git branch `backup-cumulative-mode`.
 
 ---
 
-## 📅 3. Day-of-Week Calculation & Scraper Matrix
+## 🗄️ 4. Production Database Schema (PostgreSQL)
 
-| Day of Week | Date Range Requested | Scraper Selection Method | Business Purpose |
-| :--- | :--- | :--- | :--- |
-| **Monday** | Prior Mon $\rightarrow$ Sun (7 Days) | **`Custom Date` (Exact)** | Finalizes prior week to lock driver payouts |
-| **Tuesday (Daily)** | Monday (Single Day = Yesterday) | **`Yesterday` Preset** | Starts tracking new ongoing week (Direct Download) |
-| **Tuesday (Audit)** | Prior Mon $\rightarrow$ Sun (7 Days) | **`Custom Date` (Exact)** | Audits Monday baseline vs final Tuesday settlement |
-| **Wednesday** | Current Mon $\rightarrow$ Tue (2 Days) | **`Custom Date` (Exact)** | Cumulative 2-day week-to-date sync |
-| **Thursday** | Current Mon $\rightarrow$ Wed (3 Days) | **`Custom Date` (Exact)** | Cumulative 3-day week-to-date sync |
-| **Friday** | Current Mon $\rightarrow$ Thu (4 Days) | **`Custom Date` (Exact)** | Cumulative 4-day week-to-date sync |
-| **Saturday / Sunday** | Current Mon $\rightarrow$ Yesterday | **`Custom Date` (Exact)** | Cumulative week-to-date sync through weekend |
+All tables reside in PostgreSQL instance `35.200.196.113:5432 / postgres`:
 
-### 🛡️ The Self-Healing Cumulative Guarantee:
-Because Wed–Sun runs are strictly cumulative from Monday, if an outage occurs on any single day, **the very next run automatically requests the full cumulative date range and backfills all missed data without manual intervention!**
+### 1. `ola_raw_crns` (Rides & Trips Master Table)
+* **Write Strategy:** Atomic `ON CONFLICT (crn) DO UPDATE` (29 columns).
+* **Synthetic Fallback:** Generates `SYNTH_{veh}_{date}_{idx}` if Ola CRN is null on cancellation rows.
+* **Columns:** `crn (PK), stmt_date, vehicle_number, driver_name, driver_number, completion_status, customer_bill_raw, paid_by_ola_money_raw, operator_bill_raw, peak_pricing_raw, ride_earnings_raw, tds_raw, toll_parking_raw, cash_collected_by_driver_raw, ola_to_pay, category, pickup_time, actual_kms_raw, trip_time_raw, fare_raw, share_osns, number_of_share_osns, bookings_completed_raw, ride_type, pickup_location, drop_location, week_start, week_end, source_file, created_at`.
+
+### 2. `ola_raw_transactions` (Financial Ledger Table)
+* **Write Strategy:** Scoped Daily Replace (`DELETE WHERE stmt_date = %s` $\rightarrow$ `Batch INSERT`).
+* **Columns:** `id (PK), stmt_date, transaction_type, vehicle_number, car_model, date_for, amount_raw, transaction_status, sub_category, payment_type, week_start, week_end, source_file, created_at`.ests the full cumulative date range and backfills all missed data without manual intervention!**
 
 ---
 

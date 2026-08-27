@@ -65,7 +65,7 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 | :- | :--- | :--- | :--- |
 | **1** | **`ola_ingestion_log`** | Master execution history with public Cloud Storage download links. | Append `INSERT` per run. |
 | **2** | **`ola_raw_crns`** | Master trip table (all 26 raw columns from `RawCrns`). | **Atomic UPSERT (`ON CONFLICT (crn) DO UPDATE`)** |
-| **3** | **`ola_raw_transactions`** | Master financial ledger (all 9 raw columns from `RawTransactions`). | **Scoped Week Replace (`DELETE target week` $\rightarrow$ `Batch INSERT`)** |
+| **3** | **`ola_raw_transactions`** | Master financial ledger (all 9 raw columns from `RawTransactions`). | **Scoped Daily Replace (`DELETE WHERE stmt_date = %s` $\rightarrow$ `Batch INSERT`)** |
 | **4** | **`ola_audit_diff_crns`** | Tuesday Trip Differences vs Monday (tolls, fares, cash). | Diff `INSERT` with `status = 'PENDING'`. |
 | **5** | **`ola_audit_diff_transactions`** | Tuesday Ledger Differences vs Monday (incentives, fees). | **Bucket Matching Algorithm** with `status = 'PENDING'`. |
 
@@ -74,24 +74,13 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 ## ⏰ Weekly Operations Timetable
 
 * **Daily Ingestion (Mon–Sun @ 10:35 AM):**
-  * **Monday:** Downloads completed prior week (`Monday to Sunday`).
-  * **Tuesday–Sunday:** Downloads cumulative week-to-date (`Monday to Yesterday`).
+  * **Every Day:** Downloads **`Yesterday`** only via the native preset for instant direct browser `.xlsx` download (~20 seconds, zero email dependency).
+  * Rides are upserted with zero duplicates (`ON CONFLICT`).
+  * Ledger entries accumulate day-by-day with scoped daily refresh (`WHERE stmt_date = yesterday`).
 * **Tuesday Audit Reconciliation (Tuesdays @ 08:00 AM):**
-  * Re-downloads completed prior week.
+  * Re-downloads completed prior week (`Monday to Sunday` 7 days).
   * Compares against Monday's baseline file to catch late toll adjustments, disputes, and bonus credits.
-
----
-
-## 📧 Email Polling & 60-Minute Cooldown Logic
-
-* **Attempt 1 (Starts at 10:35 AM):**
-  * Triggers email modal **1 time**.
-  * Polls Gmail IMAP every **60 seconds** for up to **40 minutes** (until 11:15 AM).
-  * Searches for any incoming emails from `*olacabs.com*` with `.xlsx` attachments.
-* **Attempt 2 (Starts at 11:35 AM - 60m Cooldown):**
-  * If no email arrives by 11:15 AM, the bot cools down until **11:35 AM** (exactly 60 minutes after Attempt 1 started).
-  * Sends **2 successive modal bursts** (send 1 $\rightarrow$ wait 4s $\rightarrow$ send 2) to force Ola's backend queue.
-  * Polls Gmail IMAP for up to **40 minutes**.
+  * Dispatches the executive audit email with detailed trip/transaction diff counts.
 
 ---
 
