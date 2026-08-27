@@ -208,10 +208,9 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
     else:
         # In Cloud Run (stateless): try fetching Monday baseline from GCS bucket!
         from gcs_upload import download_statement_from_gcs
-        # Look for Monday's statement filename
-        target_mon_date = prior_monday + timedelta(days=7) # Monday after prior week
-        gcs_blob = f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{target_mon_date.strftime('%Y-%m-%d')}.xlsx"
-        local_dest = DOWNLOAD_DIR / f"ola_statement_{target_mon_date.strftime('%Y-%m-%d')}.xlsx"
+        # Look for Yesterday's file downloaded on the prior Monday (which IS prior_monday itself)
+        gcs_blob = f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx"
+        local_dest = DOWNLOAD_DIR / f"ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx"
         if download_statement_from_gcs(gcs_blob, str(local_dest), logger=logger):
             monday_file = str(local_dest)
             logger(f"Retrieved Monday Baseline from GCS: {os.path.basename(monday_file)}")

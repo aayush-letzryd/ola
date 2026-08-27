@@ -195,25 +195,29 @@ def load_ola_statement_to_postgres(
         df_txns = pd.read_excel(file_path, sheet_name=txn_sheet)
         logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet.")
 
-        # Scoped Daily Delete: Only wipe rows for this specific date (stmt_date).
+        # Scoped Daily Delete: Only wipe rows for this specific date (date_for).
+        # stmt_date is populated from "Date for" column — scoping by date_for is the reliable key.
         # This preserves ALL previous days' ledger rows so they accumulate cleanly.
         cur.execute(
-            "DELETE FROM ola_raw_transactions WHERE stmt_date = %s;",
+            "DELETE FROM ola_raw_transactions WHERE date_for = %s;",
             (week_end,)  # week_end == yesterday in Yesterday-only daily mode
         )
-        logger(f"[DB Loader] Cleaned previous staging rows for stmt_date={week_end} in 'ola_raw_transactions'.")
+        logger(f"[DB Loader] Cleaned previous staging rows for date_for={week_end} in 'ola_raw_transactions'.")
 
         txn_records = []
         for idx, row in df_txns.iterrows():
             veh = _normalize_vehicle(row.get("Car number"))
             if not veh and pd.isna(row.get("Amount Raw")):
                 continue
+            # stmt_date = "Date for" column (the actual transaction date per row)
+            # This is the reliable per-row date that Ola embeds in each ledger entry
+            date_for_val = _coerce_date(row.get("Date for"))
             txn_records.append((
-                _coerce_date(row.get("Date")),
+                date_for_val,   # stmt_date ← populated from "Date for" (fixes NULL issue!)
                 str(row.get("Type", "")).strip() if pd.notna(row.get("Type")) else "",
                 veh,
                 str(row.get("Car model", "")).strip() if pd.notna(row.get("Car model")) else "",
-                _coerce_date(row.get("Date for")),
+                date_for_val,   # date_for ← same value, the actual transaction date
                 _coerce_numeric(row.get("Amount Raw")),
                 str(row.get("Status", "")).strip() if pd.notna(row.get("Status")) else "",
                 str(row.get("Sub Category", "")).strip() if pd.notna(row.get("Sub Category")) else "",
