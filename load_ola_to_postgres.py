@@ -192,11 +192,11 @@ def load_ola_statement_to_postgres(
         # 2. Ingest RawTransactions (Daily Replace — Yesterday-Only Mode)
         # -------------------------------------------------------------------
         txn_sheet = [s for s in xl.sheet_names if "trans" in s.lower() or "acc" in s.lower()][0]
-        df_txns = pd.read_excel(file_path, sheet_name=txn_sheet)
-        logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet.")
+        # Clean column names by stripping any leading/trailing whitespace (e.g. ' Date' -> 'Date')
+        df_txns.columns = [str(c).strip() for c in df_txns.columns]
+        logger(f"[DB Loader] Read {len(df_txns)} rows from '{txn_sheet}' sheet. Cleaned columns: {df_txns.columns.tolist()}")
 
-        # Scoped Daily Delete: Only wipe rows for this specific date (date_for).
-        # stmt_date is populated from "Date for" column — scoping by date_for is the reliable key.
+        # Scoped Daily Delete: Only wipe rows for this specific operational date (date_for).
         # This preserves ALL previous days' ledger rows so they accumulate cleanly.
         cur.execute(
             "DELETE FROM ola_raw_transactions WHERE date_for = %s;",
@@ -209,15 +209,19 @@ def load_ola_statement_to_postgres(
             veh = _normalize_vehicle(row.get("Car number"))
             if not veh and pd.isna(row.get("Amount Raw")):
                 continue
-            # stmt_date = "Date for" column (the actual transaction date per row)
-            # This is the reliable per-row date that Ola embeds in each ledger entry
-            date_for_val = _coerce_date(row.get("Date for"))
+            # stmt_date = Posting / Settlement Date (from 'Date' column in Excel, e.g. 2026-08-27)
+            posting_date = _coerce_date(row.get("Date"))
+            # date_for = Operational Ride / Fee Date (from 'Date for' column in Excel, e.g. 2026-08-26)
+            service_date = _coerce_date(row.get("Date for")) or posting_date
+            if not posting_date:
+                posting_date = service_date
+
             txn_records.append((
-                date_for_val,   # stmt_date ← populated from "Date for" (fixes NULL issue!)
+                posting_date,   # stmt_date (Posting date: when transaction was settled)
                 str(row.get("Type", "")).strip() if pd.notna(row.get("Type")) else "",
                 veh,
                 str(row.get("Car model", "")).strip() if pd.notna(row.get("Car model")) else "",
-                date_for_val,   # date_for ← same value, the actual transaction date
+                service_date,   # date_for (Service date: operational day the charge belongs to)
                 _coerce_numeric(row.get("Amount Raw")),
                 str(row.get("Status", "")).strip() if pd.notna(row.get("Status")) else "",
                 str(row.get("Sub Category", "")).strip() if pd.notna(row.get("Sub Category")) else "",
