@@ -161,6 +161,7 @@ def _check_gmail_for_xlsx(
                 subject_raw = decode_header(msg.get("Subject", ""))[0]
                 subject = _decode_str(subject_raw[0] if subject_raw[0] else b"").lower()
                 sender  = msg.get("From", "").lower()
+                date_str = msg.get("Date", "")
                 # Ignore Uber automation emails
                 if "uber" in subject or "uber" in sender:
                     continue
