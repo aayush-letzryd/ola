@@ -108,6 +108,23 @@ def check_if_already_ingested(from_d: date, to_d: date, logger=log) -> bool:
         logger(f"[Pipeline] Warning checking existing ingestion status: {e}")
     return False
 
+def _send_failure_alert_if_allowed(from_d, to_d, err_msg: str, logger=log):
+    """
+    Only send failure alert email if current time is >= 10:00 AM IST.
+    During early morning hourly retries (6:00 AM to 9:59 AM), failure emails are suppressed
+    to allow subsequent hourly runs to automatically capture the statement without false alarm.
+    """
+    try:
+        from datetime import timezone
+        current_ist_hour = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).hour
+        if current_ist_hour >= 10:
+            from alerts import send_failure_alert
+            send_failure_alert(str(from_d), str(to_d), err_msg, logger=logger)
+        else:
+            logger(f"[Pipeline] [INFO] Current time is {current_ist_hour}:00 IST (< 10:00 AM). Suppressed failure alert email — next hourly run will retry automatically.")
+    except Exception as _ae:
+        logger(f"[Pipeline] Warning evaluating failure alert: {_ae}")
+
 def run_daily_sync(
     from_d: date,
     to_d: date,
@@ -142,11 +159,7 @@ def run_daily_sync(
         if not downloaded_file or not os.path.exists(downloaded_file):
             err_msg = "Statement file could not be secured from Ola portal or email after all retry attempts."
             logger(f"[Pipeline] [ERROR] {err_msg}")
-            try:
-                from alerts import send_failure_alert
-                send_failure_alert(str(from_d), str(to_d), err_msg, logger=logger)
-            except Exception as _ae:
-                logger(f"[Pipeline] Warning dispatching alert email: {_ae}")
+            _send_failure_alert_if_allowed(from_d, to_d, err_msg, logger=logger)
             return None
 
         # Step 2: Upload to Google Cloud Storage
@@ -194,11 +207,7 @@ def run_daily_sync(
 
     except Exception as e:
         logger(f"[Pipeline] [FATAL ERROR] Pipeline run failed: {e}")
-        try:
-            from alerts import send_failure_alert
-            send_failure_alert(str(from_d), str(to_d), f"Pipeline execution error: {e}", logger=logger)
-        except Exception:
-            pass
+        _send_failure_alert_if_allowed(from_d, to_d, f"Pipeline execution error: {e}", logger=logger)
         return None
 
 def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
