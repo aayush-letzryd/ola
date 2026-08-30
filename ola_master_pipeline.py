@@ -295,6 +295,52 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
 
     return audit_res
 
+def run_dual_daily_sync(force_engine: Optional[str] = None, logger=log) -> Optional[dict]:
+    """
+    Dual-Sync Engine:
+    Executes BOTH Yesterday Sync AND Rolling Week Sync in every daily run:
+    1. Pass 1: Quick 'Yesterday' Sync (fast direct browser download in ~20-30s).
+    2. Pass 2: 'Rolling Week' Sync (Monday to Yesterday) to auto-heal missing days and reconcile late incentives.
+    If either or both succeed, the daily ingestion is marked as successful!
+    """
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    current_week_monday = yesterday - timedelta(days=yesterday.weekday())
+
+    logger("\n" + "="*75)
+    logger("MASTER OLA PIPELINE: DUAL SYNC (YESTERDAY + ROLLING WEEK)")
+    logger(f"Target Windows: Yesterday ({yesterday}) AND Rolling Week ({current_week_monday} to {yesterday})")
+    logger("="*75)
+
+    # ── PASS 1: YESTERDAY DIRECT SYNC ────────────────────────────────────
+    logger("\n[Dual Sync] 🚀 Step 1: Running Fast 'Yesterday' Sync...")
+    res_yesterday = run_daily_sync(
+        from_d=yesterday,
+        to_d=yesterday,
+        run_name=f"Daily Yesterday Sync ({yesterday})",
+        force_engine=force_engine,
+        logger=logger
+    )
+
+    # ── PASS 2: ROLLING WEEK SYNC (If yesterday is beyond Monday) ────────
+    res_rolling = None
+    if yesterday != current_week_monday:
+        logger(f"\n[Dual Sync] 🚀 Step 2: Running Comprehensive 'Rolling Week' Sync ({current_week_monday} to {yesterday})...")
+        res_rolling = run_daily_sync(
+            from_d=current_week_monday,
+            to_d=yesterday,
+            run_name=f"Rolling Week Sync ({current_week_monday} to {yesterday})",
+            force_engine=force_engine,
+            logger=logger
+        )
+    else:
+        logger(f"\n[Dual Sync] Yesterday was Monday ({yesterday}) — Step 1 already covers the full active week.")
+
+    if (res_yesterday and res_yesterday.get("status") == "SUCCESS") or (res_rolling and res_rolling.get("status") == "SUCCESS"):
+        return res_rolling or res_yesterday
+
+    return None
+
 def main():
     parser = argparse.ArgumentParser(description="LetzRyd Ola Master Ingestion & Audit Pipeline")
     parser.add_argument("--tuesday-audit", action="store_true", help="Run Tuesday 8:00 AM audit reconciliation")
@@ -316,8 +362,7 @@ def main():
         t_d = datetime.strptime(args.to_date, "%Y-%m-%d").date()
         res = run_daily_sync(f_d, t_d, f"Custom Date Sync ({f_d} to {t_d})", force_engine=args.force_engine)
     else:
-        w_start, w_end, run_desc = calculate_daily_date_range()
-        res = run_daily_sync(w_start, w_end, run_desc, force_engine=args.force_engine)
+        res = run_dual_daily_sync(force_engine=args.force_engine)
 
     if not res or res.get("status") != "SUCCESS":
         log("[Pipeline] [FATAL] Execution completed without data ingestion. Exiting with failure status.")
