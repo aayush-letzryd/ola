@@ -584,43 +584,43 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
         def _handle_email_modal(pg, email_addr, lgr) -> bool:
             """Fill email in the export modal ONLY if an actual email export modal is visible."""
             try:
-                # Check for explicit email input fields or dialog container
+                # Check for explicit email export modal text
                 modal_selectors = [
-                    ".v-dialog",
                     "text=Get statement via email",
                     "text=Can we email it to you instead?",
+                    "text=We will email the statement to you",
+                    "text=Enter your email",
                 ]
-                has_modal = False
+                has_email_text = False
                 for sel in modal_selectors:
                     try:
                         if pg.locator(sel).first.is_visible(timeout=1000):
-                            has_modal = True
+                            has_email_text = True
                             break
                     except Exception:
                         pass
 
+                # Check specifically for email input field
                 email_input_loc = None
                 input_selectors = [
-                    "input[placeholder*='Enter Email']",
+                    "input[placeholder*='Enter Email' i]",
                     "input[placeholder*='email' i]",
-                    "input[placeholder*='Email']",
-                    ".v-dialog input[type='text']",
-                    ".v-dialog input[type='email']",
-                    ".v-dialog input",
                     "input[type='email']",
+                    ".v-dialog input[placeholder*='email' i]",
+                    ".v-dialog input[type='email']",
                 ]
                 for sel in input_selectors:
                     try:
                         loc = pg.locator(sel).first
                         if loc.is_visible(timeout=1000):
                             email_input_loc = loc
-                            has_modal = True
                             break
                     except Exception:
                         pass
 
-                if has_modal and email_input_loc:
-                    lgr(f"[FETCH] 📧 Email export modal detected — entering email: {email_addr}")
+                # Only proceed if we have an explicit email input
+                if (has_email_text or email_input_loc) and email_input_loc:
+                    lgr(f"[FETCH] 📧 Genuine email export modal detected — entering email: {email_addr}")
                     try:
                         email_input_loc.click(timeout=3000)
                         email_input_loc.fill("")
@@ -641,14 +641,14 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                     }""", email_addr)
                     pg.wait_for_timeout(800)
 
-                    # Click SEND button
+                    # Click SEND button (strictly email submit buttons, never generic OKAY)
                     sent = False
                     for btn_sel in [
                         ".v-dialog button:has-text('SEND')",
                         "button:has-text('SEND')",
-                        "button:has-text('Send')",
-                        ".v-dialog button:has-text('SUBMIT')",
-                        "button:has-text('SUBMIT')"
+                        ".v-dialog button:has-text('Submit')",
+                        "button:has-text('SUBMIT')",
+                        "button:has-text('Send')"
                     ]:
                         try:
                             btn = pg.locator(btn_sel).first
@@ -663,7 +663,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                     if not sent:
                         sent = pg.evaluate("""() => {
                             const btns = Array.from(document.querySelectorAll('.v-dialog button, button'));
-                            const btn = btns.find(b => ['SEND','SUBMIT','OKAY','OK','CONFIRM'].includes(b.textContent.trim().toUpperCase()));
+                            const btn = btns.find(b => ['SEND','SUBMIT'].includes(b.textContent.trim().toUpperCase()));
                             if (btn) { btn.click(); return true; }
                             return false;
                         }""")
@@ -675,6 +675,23 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             except Exception as _e:
                 lgr(f"[FETCH] Email modal handler error: {_e}")
             return False
+
+        # ── Helper: dismiss informational dialogs ────────────────────────
+        def _dismiss_popups(pg, lgr):
+            """Dismiss any informational Vuetify dialogs (e.g. OKAY, CONFIRM, CLOSE)."""
+            for popup_text in ["OKAY", "Okay", "OK", "CONFIRM", "Confirm", "CLOSE", "Close", "GOT IT", "Got it"]:
+                try:
+                    btn = pg.locator(
+                        f"button:has-text('{popup_text}'), "
+                        f".v-dialog button:has-text('{popup_text}')"
+                    ).first
+                    if btn.is_visible(timeout=1000):
+                        lgr(f"[FETCH] Dismissing '{popup_text}' popup...")
+                        btn.click()
+                        pg.wait_for_timeout(800)
+                        break
+                except Exception:
+                    pass
 
         # ── Helper: check for a fresh direct download ────────────────────
         def _check_direct_download(since_ts: float, lgr) -> str | None:
@@ -804,7 +821,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             Click DOWNLOAD STATEMENT and capture either direct download or email modal.
             """
             lgr(f"[FETCH] [{attempt_label}] Clicking DOWNLOAD STATEMENT...")
-            pg.wait_for_timeout(2000)
+            pg.wait_for_timeout(1000)
             ss(pg, f"pre_download_{attempt_label}", lgr)
 
             # Dismiss any active datepicker dialogs/overlays before clicking DOWNLOAD
@@ -813,11 +830,6 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 pg.wait_for_timeout(500)
             except Exception:
                 pass
-
-            # Pre-click check for email modal
-            if _handle_email_modal(pg, EMAIL, lgr):
-                lgr(f"[FETCH] [{attempt_label}] Email export triggered (pre-click) → polling IMAP...")
-                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=2400)
 
             # Set up direct download listener
             download_holder = []
@@ -833,10 +845,27 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 lgr(f"[FETCH] [{attempt_label}] Download button click error: {_e}")
                 return None
 
-            pg.wait_for_timeout(2500)
+            pg.wait_for_timeout(3000)
             ss(pg, f"post_download_{attempt_label}", lgr)
 
-            # Check if Ola error toast "Failed to download the data. Please try again." appeared
+            # 1. Immediate check: Did direct browser download event fire?
+            if download_holder:
+                download = download_holder[0]
+                date_str = today.strftime('%Y-%m-%d')
+                fname = f"ola_statement_{date_str}.xlsx"
+                save_path = os.path.join(DOWNLOAD_DIR, fname)
+                download.save_as(save_path)
+                _cleanup_temp_downloads(lgr)
+                lgr(f"[FETCH] [{attempt_label}] ✓ Direct browser download captured → {save_path}")
+                return save_path
+
+            # Direct check for downloaded file in folder
+            result = _check_direct_download(attempt_start_ts, lgr)
+            if result:
+                lgr(f"[FETCH] [{attempt_label}] ✓ Found file via direct directory check: {result}")
+                return result
+
+            # 2. Check if Ola error toast "Failed to download the data. Please try again." appeared
             try:
                 err_toast = pg.locator("text=Failed to download the data").first
                 if err_toast.is_visible(timeout=1500):
@@ -844,9 +873,29 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                     pg.wait_for_timeout(2000)
                     pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=5000)
                     lgr(f"[FETCH] [{attempt_label}] Fired Burst 2 click on DOWNLOAD STATEMENT")
-                    pg.wait_for_timeout(2500)
+                    pg.wait_for_timeout(3000)
             except Exception:
                 pass
+
+            # 3. Dismiss any informational popups (OKAY/CONFIRM/CLOSE)
+            _dismiss_popups(pg, lgr)
+            pg.wait_for_timeout(1000)
+
+            # 4. Check again for direct download after popup dismissal
+            if download_holder:
+                download = download_holder[0]
+                date_str = today.strftime('%Y-%m-%d')
+                fname = f"ola_statement_{date_str}.xlsx"
+                save_path = os.path.join(DOWNLOAD_DIR, fname)
+                download.save_as(save_path)
+                _cleanup_temp_downloads(lgr)
+                lgr(f"[FETCH] [{attempt_label}] ✓ Direct browser download captured after dismiss → {save_path}")
+                return save_path
+
+            result = _check_direct_download(attempt_start_ts, lgr)
+            if result:
+                lgr(f"[FETCH] [{attempt_label}] ✓ Found file via direct directory check after dismiss: {result}")
+                return result
 
             # Helper for timed 3-burst email submission & IMAP polling (with 12:01 PM burst support)
             def _poll_with_timed_burst(burst_wait_s: int = 600, total_s: int = 2400) -> Optional[str]:
@@ -859,7 +908,8 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 # Burst 1 timed out -> Fire Burst 2 on Ola portal
                 lgr(f"[FETCH] [{attempt_label}] ⚡ No email within {burst_wait_s // 60} mins. Re-triggering Burst 2 on Ola portal...")
                 try:
-                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000)
+                    _dismiss_popups(pg, lgr)
+                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000, force=True)
                     pg.wait_for_timeout(2000)
                     _handle_email_modal(pg, EMAIL, lgr)
                 except Exception as _be:
@@ -876,7 +926,8 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 # Burst 2 timed out -> Fire Burst 3 on Ola portal (12:01 PM push)
                 lgr(f"[FETCH] [{attempt_label}] ⚡ No email after 14 mins. Re-triggering Burst 3 on Ola portal (12:01 PM push)...")
                 try:
-                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000)
+                    _dismiss_popups(pg, lgr)
+                    pg.locator("text=DOWNLOAD STATEMENT").first.click(timeout=6000, force=True)
                     pg.wait_for_timeout(2000)
                     _handle_email_modal(pg, EMAIL, lgr)
                 except Exception as _be3:
@@ -886,32 +937,12 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 3 submitted → Polling IMAP for remaining {rem_s // 60} minutes...")
                 return _poll_imap(lgr, lookback_minutes=45, max_wait_s=rem_s)
 
-            # Check if email modal appeared right after clicking DOWNLOAD STATEMENT
+            # 5. Check if genuine email export modal is visible
             if _handle_email_modal(pg, EMAIL, lgr):
                 lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-click) → starting timed burst polling...")
                 return _poll_with_timed_burst(burst_wait_s=600, total_s=2400)
 
-            # Dismiss OKAY/CONFIRM popup if present
-            for popup_text in ["OKAY", "Okay", "OK", "CONFIRM", "Confirm"]:
-                try:
-                    btn = pg.locator(
-                        f"button:has-text('{popup_text}'), "
-                        f".v-dialog button:has-text('{popup_text}')"
-                    ).first
-                    if btn.is_visible(timeout=2000):
-                        lgr(f"[FETCH] [{attempt_label}] Dismissing '{popup_text}' popup...")
-                        btn.click()
-                        pg.wait_for_timeout(1000)
-                        break
-                except Exception:
-                    pass
-
-            # Check again if email modal appeared after dismissing okay
-            if _handle_email_modal(pg, EMAIL, lgr):
-                lgr(f"[FETCH] [{attempt_label}] Email export triggered (post-okay) → starting timed burst polling...")
-                return _poll_with_timed_burst(burst_wait_s=600, total_s=2400)
-
-            # Wait briefly for direct browser download event
+            # 6. Wait briefly for direct browser download event (up to 10s)
             wait_start = time.time()
             while time.time() - wait_start < 10:
                 if download_holder:
@@ -923,15 +954,13 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                     _cleanup_temp_downloads(lgr)
                     lgr(f"[FETCH] [{attempt_label}] ✓ Direct browser download captured → {save_path}")
                     return save_path
+                res = _check_direct_download(attempt_start_ts, lgr)
+                if res:
+                    lgr(f"[FETCH] [{attempt_label}] ✓ Found file via direct directory check: {res}")
+                    return res
                 time.sleep(1)
 
-            # Direct check for downloaded file in folder
-            result = _check_direct_download(attempt_start_ts, lgr)
-            if result:
-                lgr(f"[FETCH] [{attempt_label}] ✓ Found file via direct directory check: {result}")
-                return result
-
-            # Final check: poll IMAP as fallback
+            # 7. Final check: poll IMAP as fallback
             lgr(f"[FETCH] [{attempt_label}] Direct download not captured — polling IMAP fallback...")
             return _poll_imap(lgr, lookback_minutes=45, max_wait_s=600)
 
