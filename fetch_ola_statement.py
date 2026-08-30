@@ -1028,9 +1028,17 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 break
             else:
                 logger(f"[FETCH] ✗ [{attempt_label}] Failed. {'Trying next approach...' if seq_idx < len(attempt_sequence) - 1 else 'All attempts exhausted.'}")
-                # Brief pause between attempts to let the portal recover
+                # Clean refresh between attempts: dismiss overlays and reload page for a fresh DOM state
                 if seq_idx < len(attempt_sequence) - 1:
-                    time.sleep(5)
+                    try:
+                        _dismiss_popups(page, logger)
+                        page.keyboard.press("Escape")
+                        page.goto(ACCOUNTING_URL, timeout=30000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(3000)
+                        logger(f"[FETCH] ✓ Refreshed Accounting Details page for clean DOM state before next attempt.")
+                    except Exception as _re:
+                        logger(f"[FETCH] Page refresh warning: {_re}")
+                    time.sleep(3)
 
         context.close()
 
