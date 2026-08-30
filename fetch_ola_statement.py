@@ -624,11 +624,11 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                     try:
                         email_input_loc.click(timeout=3000)
                         email_input_loc.fill("")
-                        email_input_loc.fill(email_addr)
+                        email_input_loc.press_sequentially(email_addr, delay=50)
                     except Exception as fill_err:
                         lgr(f"[FETCH] Playwright fill warning: {fill_err}")
 
-                    # Fallback/supplement with JS evaluation to guarantee Vue v-model update
+                    # Guarantee Vue v-model reactivity & enable SEND button
                     pg.evaluate("""(addr) => {
                         const inps = document.querySelectorAll('.v-dialog input, [role="dialog"] input, input[placeholder*="email" i], input[type="email"]');
                         for (const inp of inps) {
@@ -639,7 +639,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                             inp.dispatchEvent(new Event('blur', { bubbles: true }));
                         }
                     }""", email_addr)
-                    pg.wait_for_timeout(800)
+                    pg.wait_for_timeout(1000)
 
                     # Click SEND button (strictly email submit buttons, never generic OKAY)
                     sent = False
@@ -653,6 +653,8 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                         try:
                             btn = pg.locator(btn_sel).first
                             if btn.is_visible(timeout=1500):
+                                btn.hover()
+                                pg.wait_for_timeout(300)
                                 btn.click()
                                 sent = True
                                 lgr(f"[FETCH] Clicked '{btn_sel}' button")
@@ -664,12 +666,18 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                         sent = pg.evaluate("""() => {
                             const btns = Array.from(document.querySelectorAll('.v-dialog button, button'));
                             const btn = btns.find(b => ['SEND','SUBMIT'].includes(b.textContent.trim().toUpperCase()));
-                            if (btn) { btn.click(); return true; }
+                            if (btn) {
+                                btn.removeAttribute('disabled');
+                                btn.classList.remove('v-btn--disabled');
+                                btn.click();
+                                return true;
+                            }
                             return false;
                         }""")
 
                     if sent:
                         pg.wait_for_timeout(2000)
+                        ss(pg, "modal_submitted", lgr)
                         lgr(f"[FETCH] ✓ Email export submitted to {email_addr}")
                         return True
             except Exception as _e:

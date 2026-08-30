@@ -73,11 +73,12 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 
 ## ⏰ Weekly Operations Timetable
 
-* **Daily Ingestion (Mon–Sun @ 10:35 AM):**
-  * **Every Day:** Downloads **`Yesterday`** only via the native preset for instant direct browser `.xlsx` download (~20 seconds, zero email dependency).
-  * Rides are upserted with zero duplicates (`ON CONFLICT`).
-  * Ledger entries accumulate day-by-day with scoped daily refresh (`WHERE date_for = yesterday`).
-* **Tuesday Audit Reconciliation (Tuesdays @ 08:00 AM):**
+* **Daily Rolling Week Ingestion (Hourly 6:00 AM – 11:00 AM IST):**
+  * **Every Day:** Ingests the **`Rolling Week`** (from Monday of current week through Yesterday).
+  * **Auto-Healing & Completeness:** Automatically backfills any missed days, updates post-midnight incentives, and reconciles late-settled fees.
+  * **Zero Duplicates:** Rides are upserted atomically (`ON CONFLICT DO UPDATE`), and ledger entries are replaced cleanly (`WHERE date_for BETWEEN from_d AND to_d`).
+  * **Smart Idempotency:** If the 6:00 AM run succeeds, all subsequent hourly runs (7, 8, 9, 10, 11 AM) check PostgreSQL and exit in **<1 second for ₹0 cost**.
+* **Tuesday Audit Reconciliation (Tuesdays @ 08:00 AM IST):**
   * Re-downloads completed prior week (`Monday to Sunday` 7 days).
   * Compares against Monday's baseline file to catch late toll adjustments, disputes, and bonus credits.
   * Dispatches the executive audit email with detailed trip/transaction diff counts.
@@ -86,28 +87,16 @@ The system is designed with **dual-engine redundancy**, **zero-duplicate databas
 
 ## ☁️ Google Cloud Deployment & Scheduling Guide
 
-### Option 1: Cloud Scheduler + Compute Engine VM (Recommended for GUI / Chrome)
-1. **Create an e2-medium Compute Engine VM** in GCP (`asia-south1` Mumbai).
-2. **Install Python & Chrome**:
+### Serverless Cloud Run Job + Cloud Scheduler
+1. **Deploy to Cloud Run Job (`ola-sync-job`)**:
    ```bash
-   sudo apt update && sudo apt install -y python3-pip git chromium-browser
-   git clone git@github.com:aayush-letzryd/letzryd-ola-integration.git
-   cd letzryd-ola-integration
-   pip install -r requirements.txt
-   playwright install chromium
+   ./deploy.sh
    ```
-3. **Configure Cron on VM**:
-   ```bash
-   crontab -e
-   ```
-   Add the following lines:
-   ```cron
-   # Daily 10:35 AM Ingestion (Mon-Sun)
-   35 10 * * * cd /home/user/letzryd-ola-integration && python3 ola_master_pipeline.py >> /var/log/ola_daily.log 2>&1
-
-   # Tuesday 08:00 AM Audit Reconciliation
-   0 8 * * 2 cd /home/user/letzryd-ola-integration && python3 ola_master_pipeline.py --tuesday-audit >> /var/log/ola_audit.log 2>&1
-   ```
+2. **Cloud Scheduler Cron Schedules**:
+   * **Daily Rolling Week Sync & Hourly Retries**:
+     `0 6,7,8,9,10,11 * * *` (Runs every hour on the hour from 6:00 AM to 11:00 AM IST)
+   * **Tuesday 08:00 AM Audit Reconciliation**:
+     `0 8 * * 2` (Runs every Tuesday at 08:00 AM IST)
 
 ---
 

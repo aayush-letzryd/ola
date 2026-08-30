@@ -35,37 +35,19 @@ echo "==========================================================================
 echo " 3. Setting Up Cloud Scheduler Triggers"
 echo "================================================================================"
 
-# Trigger 1: Daily Sync (Attempt 1 at 10:35 AM IST)
-echo "Creating/Updating 'ola-daily-sync-trigger' (10:35 AM IST)..."
+# Trigger 1: Daily Rolling Week Sync & Hourly Retry (6:00 AM to 11:00 AM IST)
+echo "Creating/Updating 'ola-daily-sync-trigger' (Hourly 6:00 AM - 11:00 AM IST)..."
 gcloud scheduler jobs create http ola-daily-sync-trigger \
   --location="${REGION}" \
-  --schedule="35 10 * * *" \
+  --schedule="0 6,7,8,9,10,11 * * *" \
   --time-zone="Asia/Kolkata" \
   --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
   --http-method=POST \
   --oauth-service-account-email="${SERVICE_ACCOUNT}" \
-  --description="Ola Daily Sync 10:35 AM Attempt 1 Trigger" || \
+  --description="Ola Daily Rolling Week Sync & Hourly Retries (6:00 to 11:00 AM IST)" || \
 gcloud scheduler jobs update http ola-daily-sync-trigger \
   --location="${REGION}" \
-  --schedule="35 10 * * *" \
-  --time-zone="Asia/Kolkata" \
-  --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
-  --http-method=POST \
-  --oauth-service-account-email="${SERVICE_ACCOUNT}"
-
-# Trigger 2: Daily Retry (Attempt 2 at 11:35 AM IST)
-echo "Creating/Updating 'ola-daily-retry-trigger' (11:35 AM IST)..."
-gcloud scheduler jobs create http ola-daily-retry-trigger \
-  --location="${REGION}" \
-  --schedule="35 11 * * *" \
-  --time-zone="Asia/Kolkata" \
-  --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
-  --http-method=POST \
-  --oauth-service-account-email="${SERVICE_ACCOUNT}" \
-  --description="Ola Daily Sync 11:35 AM Attempt 2 Retry Trigger" || \
-gcloud scheduler jobs update http ola-daily-retry-trigger \
-  --location="${REGION}" \
-  --schedule="35 11 * * *" \
+  --schedule="0 6,7,8,9,10,11 * * *" \
   --time-zone="Asia/Kolkata" \
   --uri="https://${REGION}-run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run" \
   --http-method=POST \

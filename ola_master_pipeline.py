@@ -54,18 +54,28 @@ def log(msg):
 
 def calculate_daily_date_range(target_d: Optional[date] = None) -> Tuple[date, date, str]:
     """
-    Daily Sync Strategy: Always download YESTERDAY only via the native
-    'Yesterday' preset on Ola portal (instant direct browser download, no email needed).
-    
-    Each day's data accumulates in the DB day-by-day:
-    - Rides (ola_raw_crns): ON CONFLICT (crn) DO UPDATE — zero duplicates ever.
-    - Ledger (ola_raw_transactions): Scoped daily replace (stmt_date) — clean daily accumulation.
-    - Tuesday Audit: Still runs on full prior week for 100% financial reconciliation.
+    Rolling Week & Daily Sync Strategy:
+    - Default daily run syncs from Monday of the current active week through Yesterday.
+    - Day-by-day accumulation & auto-healing:
+      - Trips (ola_raw_crns): ON CONFLICT (crn) DO UPDATE — zero duplicates ever.
+      - Ledger (ola_raw_transactions): Scoped replace (date_for BETWEEN from_d AND to_d) — clean multi-day reconciliation.
+      - Automatically catches late-settled transactions (post-midnight incentives, adjustments) across the week.
+      - If any previous day was missed, rolling week automatically backfills and heals it!
     """
     today = target_d or date.today()
     yesterday = today - timedelta(days=1)
-    desc = f"Daily Yesterday Sync ({yesterday})"
-    return yesterday, yesterday, desc
+    
+    # Monday of the current active week
+    current_week_monday = yesterday - timedelta(days=yesterday.weekday())
+    
+    if yesterday.weekday() == 0:
+        # If yesterday was Monday (e.g. running on Tuesday), sync Monday single day
+        desc = f"Daily Yesterday Sync ({yesterday})"
+        return yesterday, yesterday, desc
+    else:
+        # Tuesday through Sunday: sync rolling week from Monday to Yesterday
+        desc = f"Rolling Week Sync ({current_week_monday} to {yesterday})"
+        return current_week_monday, yesterday, desc
 
 def calculate_prior_week_dates(target_d: Optional[date] = None) -> Tuple[date, date]:
     today = target_d or date.today()
@@ -83,16 +93,16 @@ def check_if_already_ingested(from_d: date, to_d: date, logger=log) -> bool:
         today = date.today()
         cur.execute("""
             SELECT id, total_crns_imported FROM ola_ingestion_log 
-            WHERE date_range_start <= %s AND date_range_end >= %s 
+            WHERE date_range_end >= %s 
               AND status = 'SUCCESS' 
               AND executed_at::date = %s
             ORDER BY id DESC LIMIT 1;
-        """, (from_d, to_d, today))
+        """, (to_d, today))
         row = cur.fetchone()
         conn.close()
         if row:
-            logger(f"[Pipeline] [SKIP] Target date range ({from_d} to {to_d}) was ALREADY successfully ingested today (Log ID: #{row[0]}, Trips: {row[1]:,}).")
-            logger("[Pipeline] [SKIP] No redundant execution needed. Exiting cleanly with 0 cost!")
+            logger(f"[Pipeline] [SKIP] Statement covering {to_d} was ALREADY successfully ingested today (Log ID: #{row[0]}, Trips: {row[1]:,}).")
+            logger("[Pipeline] [SKIP] Hourly retry gate: No redundant execution needed. Exiting cleanly in <1s!")
             return True
     except Exception as e:
         logger(f"[Pipeline] Warning checking existing ingestion status: {e}")
