@@ -357,32 +357,32 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
         # ── STEP 1-7: Login & Session Authentication Loop ──────────────────────
         logged_in = False
-        for login_attempt in range(1, 4):
-            logger(f"[FETCH] Login Attempt {login_attempt}/3...")
+        for login_attempt in range(1, 7):
+            logger(f"[FETCH] Login Attempt {login_attempt}/6...")
             try:
-                page.goto(LOGIN_URL, timeout=30000)
-                page.wait_for_timeout(5000)
+                page.goto(LOGIN_URL, timeout=45000)
+                page.wait_for_timeout(8000)
             except Exception as load_err:
                 logger(f"[FETCH] Page goto warning: {load_err}")
 
             if "login" not in page.url.lower():
                 logger(f"[FETCH] Active session detected! URL: {page.url}")
                 page.goto(ACCOUNTING_URL, timeout=60000)
-                page.wait_for_timeout(6000)
+                page.wait_for_timeout(8000)
                 if "login" not in page.url.lower():
                     logged_in = True
                     break
 
             ss(page, f"01_login_page_attempt_{login_attempt}", logger)
 
-            # Click mobile login
+            # Click mobile login (generous 25s timeout for SPA rendering)
             for btn_text in ["Login with mobile number", "mobile number", "Sign in", "Log in", "Login"]:
                 try:
                     btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}'), div:has-text('{btn_text}')").first
-                    if btn.is_visible(timeout=8000):
+                    if btn.is_visible(timeout=25000):
                         btn.click()
                         logger(f"[FETCH] Clicked '{btn_text}' button")
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(3000)
                         break
                 except Exception:
                     pass
@@ -390,7 +390,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             phone_input = None
             for sel in ["#identification", "input[type='tel']", "input[placeholder*='mobile']", "input[placeholder*='phone']", "input[type='number']"]:
                 try:
-                    if page.locator(sel).first.is_visible(timeout=8000):
+                    if page.locator(sel).first.is_visible(timeout=25000):
                         phone_input = sel
                         break
                 except Exception:
@@ -399,40 +399,44 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             if not phone_input:
                 logger(f"[FETCH] Phone input not visible on attempt {login_attempt} (URL: {page.url}). Reloading login page...")
                 ss(page, f"no_phone_input_attempt_{login_attempt}", logger)
-                page.goto("https://partners.olacabs.com/public/login", timeout=30000)
-                page.wait_for_timeout(5000)
-                # Re-check after reload
+                try:
+                    page.goto("https://partners.olacabs.com/public/login", timeout=45000)
+                    page.wait_for_timeout(10000)
+                except Exception:
+                    pass
+                # Re-check after reload with generous timeout
                 for btn_text in ["Login with mobile number", "mobile number", "Sign in", "Log in", "Login"]:
                     try:
                         btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}'), div:has-text('{btn_text}')").first
-                        if btn.is_visible(timeout=8000):
+                        if btn.is_visible(timeout=25000):
                             btn.click()
-                            page.wait_for_timeout(2000)
+                            page.wait_for_timeout(3000)
                             break
                     except Exception:
                         pass
                 for sel in ["#identification", "input[type='tel']", "input[placeholder*='mobile']", "input[placeholder*='phone']", "input[type='number']"]:
                     try:
-                        if page.locator(sel).first.is_visible(timeout=8000):
+                        if page.locator(sel).first.is_visible(timeout=25000):
                             phone_input = sel
                             break
                     except Exception:
                         pass
 
             if not phone_input:
-                logger(f"[FETCH] Still could not find phone input on attempt {login_attempt}.")
+                logger(f"[FETCH] Still could not find phone input on attempt {login_attempt}. Waiting 10s before next attempt...")
+                time.sleep(10)
                 continue
 
             logger(f"[FETCH] Entering phone: {PHONE_NUMBER}")
             page.fill(phone_input, PHONE_NUMBER)
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(1000)
 
             initial_otp, initial_date, _ = get_current_otp_from_sheet()
             try:
-                page.click("text=Continue", timeout=5000)
+                page.click("text=Continue", timeout=15000)
             except Exception:
                 page.keyboard.press("Enter")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(4000)
 
             logger("[FETCH] Waiting for OTP from sheet...")
             try:

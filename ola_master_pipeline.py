@@ -130,6 +130,7 @@ def run_daily_sync(
     to_d: date,
     run_name: str,
     force_engine: Optional[str] = None,
+    force: bool = False,
     logger=log
 ) -> Optional[dict]:
     logger("\n" + "="*75)
@@ -139,7 +140,7 @@ def run_daily_sync(
     start_t = time.time()
 
     # Smart idempotency check: Skip if already ingested today
-    if not force_engine and check_if_already_ingested(from_d, to_d, logger=logger):
+    if not (force_engine or force) and check_if_already_ingested(from_d, to_d, logger=logger):
         return {
             "status": "SUCCESS",
             "skipped": True,
@@ -295,7 +296,7 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
 
     return audit_res
 
-def run_dual_daily_sync(force_engine: Optional[str] = None, logger=log) -> Optional[dict]:
+def run_dual_daily_sync(force_engine: Optional[str] = None, force: bool = False, logger=log) -> Optional[dict]:
     """
     Dual-Sync Engine:
     Executes BOTH Yesterday Sync AND Rolling Week Sync in every daily run:
@@ -319,6 +320,7 @@ def run_dual_daily_sync(force_engine: Optional[str] = None, logger=log) -> Optio
         to_d=yesterday,
         run_name=f"Daily Yesterday Sync ({yesterday})",
         force_engine=force_engine,
+        force=force,
         logger=logger
     )
 
@@ -331,6 +333,7 @@ def run_dual_daily_sync(force_engine: Optional[str] = None, logger=log) -> Optio
             to_d=yesterday,
             run_name=f"Rolling Week Sync ({current_week_monday} to {yesterday})",
             force_engine=force_engine,
+            force=force,
             logger=logger
         )
     else:
@@ -347,6 +350,7 @@ def main():
     parser.add_argument("--from-date", help="Custom from date YYYY-MM-DD")
     parser.add_argument("--to-date", help="Custom to date YYYY-MM-DD")
     parser.add_argument("--force-engine", choices=["playwright", "browser_use"], default=None)
+    parser.add_argument("--force", action="store_true", help="Force run even if already ingested today")
 
     # Defensive parsing: strip stray wrapper tokens if passed via container overrides
     filtered_argv = [arg for arg in sys.argv[1:] if not (arg.endswith(".py") or arg == "python")]
@@ -360,9 +364,9 @@ def main():
     elif args.from_date and args.to_date:
         f_d = datetime.strptime(args.from_date, "%Y-%m-%d").date()
         t_d = datetime.strptime(args.to_date, "%Y-%m-%d").date()
-        res = run_daily_sync(f_d, t_d, f"Custom Date Sync ({f_d} to {t_d})", force_engine=args.force_engine)
+        res = run_daily_sync(f_d, t_d, f"Custom Date Sync ({f_d} to {t_d})", force_engine=args.force_engine, force=args.force)
     else:
-        res = run_dual_daily_sync(force_engine=args.force_engine)
+        res = run_dual_daily_sync(force_engine=args.force_engine, force=args.force)
 
     if not res or res.get("status") != "SUCCESS":
         log("[Pipeline] [FATAL] Execution completed without data ingestion. Exiting with failure status.")
