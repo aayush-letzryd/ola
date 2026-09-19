@@ -379,10 +379,10 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             for btn_text in ["Login with mobile number", "mobile number", "Sign in", "Log in", "Login"]:
                 try:
                     btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}'), div:has-text('{btn_text}')").first
-                    if btn.is_visible(timeout=3000):
+                    if btn.is_visible(timeout=8000):
                         btn.click()
                         logger(f"[FETCH] Clicked '{btn_text}' button")
-                        page.wait_for_timeout(1500)
+                        page.wait_for_timeout(2000)
                         break
                 except Exception:
                     pass
@@ -390,7 +390,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             phone_input = None
             for sel in ["#identification", "input[type='tel']", "input[placeholder*='mobile']", "input[placeholder*='phone']", "input[type='number']"]:
                 try:
-                    if page.locator(sel).first.is_visible(timeout=3000):
+                    if page.locator(sel).first.is_visible(timeout=8000):
                         phone_input = sel
                         break
                 except Exception:
@@ -400,20 +400,20 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 logger(f"[FETCH] Phone input not visible on attempt {login_attempt} (URL: {page.url}). Reloading login page...")
                 ss(page, f"no_phone_input_attempt_{login_attempt}", logger)
                 page.goto("https://partners.olacabs.com/public/login", timeout=30000)
-                page.wait_for_timeout(4000)
+                page.wait_for_timeout(5000)
                 # Re-check after reload
                 for btn_text in ["Login with mobile number", "mobile number", "Sign in", "Log in", "Login"]:
                     try:
                         btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}'), div:has-text('{btn_text}')").first
-                        if btn.is_visible(timeout=3000):
+                        if btn.is_visible(timeout=8000):
                             btn.click()
-                            page.wait_for_timeout(1500)
+                            page.wait_for_timeout(2000)
                             break
                     except Exception:
                         pass
                 for sel in ["#identification", "input[type='tel']", "input[placeholder*='mobile']", "input[placeholder*='phone']", "input[type='number']"]:
                     try:
-                        if page.locator(sel).first.is_visible(timeout=3000):
+                        if page.locator(sel).first.is_visible(timeout=8000):
                             phone_input = sel
                             break
                     except Exception:
