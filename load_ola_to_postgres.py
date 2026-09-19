@@ -284,6 +284,8 @@ def load_ola_statement_to_postgres(
         # -------------------------------------------------------------------
         try:
             logger(f"[DB Loader] Triggering downstream core & hisaab sync for ({week_start} to {week_end})...")
+            cur.execute("SET LOCAL lock_timeout = '5s';")
+            cur.execute("SET LOCAL statement_timeout = '30s';")
             cur.execute("SELECT public.fn_sync_core_ola(%s, %s);", (week_start, week_end))
             conn.commit()
             logger(f"[DB Loader] [SUCCESS] Downstream core & hisaab sync completed.")
