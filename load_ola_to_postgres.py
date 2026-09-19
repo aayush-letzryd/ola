@@ -92,6 +92,12 @@ def load_ola_statement_to_postgres(
     conn.autocommit = False
     cur = conn.cursor()
 
+    # Session-level protection: Ensure downstream lock guards treat this ingestion session safely
+    try:
+        cur.execute("SET hisaab.enforcing_lock = 'true';")
+    except Exception:
+        pass
+
     try:
         xl = pd.ExcelFile(file_path)
 
