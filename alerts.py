@@ -95,23 +95,25 @@ def _get_base_template(status_type: str, title: str, subtitle: str, content_tabl
     </html>
     """
 
+from email.header import Header
+
 def _send_email(subject: str, html_body: str, recipient: str = DEFAULT_RECIPIENT, logger=print) -> bool:
     smtp_user = os.environ.get("GMAIL_IMAP_USER", os.environ.get("SMTP_USER", DEFAULT_RECIPIENT)).strip()
     smtp_pass = os.environ.get("GMAIL_IMAP_PASSWORD", os.environ.get("SMTP_PASSWORD", "")).replace(" ", "").strip()
 
     if not smtp_pass:
-        logger("[EMAIL] ⚠️ Cannot send notification: GMAIL_IMAP_PASSWORD / SMTP_PASSWORD not set.")
+        logger("[EMAIL] [WARNING] Cannot send notification: GMAIL_IMAP_PASSWORD / SMTP_PASSWORD not set.")
         return False
 
     try:
         msg = MIMEMultipart("related")
-        msg["Subject"] = subject
+        msg["Subject"] = Header(subject, "utf-8").encode()
         msg["From"] = f"LetzRyd Ola Automation <{smtp_user}>"
         msg["To"] = recipient
 
         msg_alt = MIMEMultipart("alternative")
         msg.attach(msg_alt)
-        msg_alt.attach(MIMEText(html_body, "html"))
+        msg_alt.attach(MIMEText(html_body, "html", "utf-8"))
 
         # Attach inline LetzRyd logo
         if LOGO_PATH.exists():
@@ -123,9 +125,9 @@ def _send_email(subject: str, html_body: str, recipient: str = DEFAULT_RECIPIENT
 
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, [recipient], msg.as_string())
+            server.sendmail(smtp_user, [recipient], msg.as_bytes())
 
-        logger(f"[EMAIL] ✉️ Branded email notification successfully sent to {recipient}!")
+        logger(f"[EMAIL] [SUCCESS] Branded email notification successfully sent to {recipient}!")
         return True
     except Exception as e:
         logger(f"[EMAIL] [!] Failed to send notification email: {e}")
