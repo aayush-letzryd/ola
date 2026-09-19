@@ -290,7 +290,10 @@ def load_ola_statement_to_postgres(
             conn.commit()
             logger(f"[DB Loader] [SUCCESS] Downstream core & hisaab sync completed.")
         except Exception as sync_err:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             logger(f"[DB Loader] [WARNING] Downstream sync deferred/warning: {sync_err}")
 
         return {

@@ -96,8 +96,8 @@ def _get_base_template(status_type: str, title: str, subtitle: str, content_tabl
     """
 
 def _send_email(subject: str, html_body: str, recipient: str = DEFAULT_RECIPIENT, logger=print) -> bool:
-    smtp_user = os.environ.get("GMAIL_IMAP_USER", os.environ.get("SMTP_USER", DEFAULT_RECIPIENT))
-    smtp_pass = os.environ.get("GMAIL_IMAP_PASSWORD", os.environ.get("SMTP_PASSWORD", ""))
+    smtp_user = os.environ.get("GMAIL_IMAP_USER", os.environ.get("SMTP_USER", DEFAULT_RECIPIENT)).strip()
+    smtp_pass = os.environ.get("GMAIL_IMAP_PASSWORD", os.environ.get("SMTP_PASSWORD", "")).replace(" ", "").strip()
 
     if not smtp_pass:
         logger("[EMAIL] ⚠️ Cannot send notification: GMAIL_IMAP_PASSWORD / SMTP_PASSWORD not set.")
