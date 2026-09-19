@@ -278,6 +278,19 @@ def load_ola_statement_to_postgres(
         conn.commit()
 
         logger(f"[DB Loader] [SUCCESS] Ingestion successfully committed! (Log ID: {log_id})")
+
+        # -------------------------------------------------------------------
+        # 4. Isolated Downstream Aggregation (Core Ola & Hisaab Sync)
+        # -------------------------------------------------------------------
+        try:
+            logger(f"[DB Loader] Triggering downstream core & hisaab sync for ({week_start} to {week_end})...")
+            cur.execute("SELECT public.fn_sync_core_ola(%s, %s);", (week_start, week_end))
+            conn.commit()
+            logger(f"[DB Loader] [SUCCESS] Downstream core & hisaab sync completed.")
+        except Exception as sync_err:
+            conn.rollback()
+            logger(f"[DB Loader] [WARNING] Downstream sync deferred/warning: {sync_err}")
+
         return {
             "status": "SUCCESS",
             "log_id": log_id,
