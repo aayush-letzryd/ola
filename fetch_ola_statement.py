@@ -32,7 +32,7 @@ import time
 import json
 import traceback
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -538,19 +538,26 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
         today         = datetime.today()
         pipeline_start_ts = time.time()   # used to bound IMAP lookback window
 
+        if from_date and to_date:
+            f_str = from_date.strftime('%Y-%m-%d')
+            t_str = to_date.strftime('%Y-%m-%d')
+            target_statement_fname = f"ola_statement_{f_str}_to_{t_str}.xlsx"
+        else:
+            target_statement_fname = f"ola_statement_{today.strftime('%Y-%m-%d')}.xlsx"
+
         # ── Cleanup: delete temp UUID files and old xlsx files from ola_downloads/ ─
         def _cleanup_temp_downloads(lgr):
             """
             1. Delete Playwright UUID temp files left behind on failed attempts.
             2. Delete any .xlsx files from previous days/runs so that only the single
-               active file (ola_statement_YYYY-MM-DD.xlsx) exists in ola_downloads/.
+               active file exists in ola_downloads/.
             """
             import re
             uuid_pattern = re.compile(
                 r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
                 re.IGNORECASE
             )
-            current_fname = f"ola_statement_{today.strftime('%Y-%m-%d')}.xlsx"
+            current_fname = target_statement_fname
             removed_temp = 0
             removed_old = 0
             for fname in os.listdir(DOWNLOAD_DIR):
@@ -716,8 +723,9 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             return None
 
         # ── Helper: poll IMAP for an already-arrived or incoming report ────
-        def _poll_imap(lgr, lookback_minutes: int = 30,
-                       max_wait_s: int = 300) -> str | None:
+        def _poll_imap(lgr, lookback_minutes: int = 45,
+                       max_wait_s: int = 300,
+                       min_email_time: Optional[datetime] = None) -> str | None:
             if not _GMAIL_AVAILABLE:
                 lgr("[FETCH] IMAP module not available — skipping Gmail poll")
                 return None
@@ -728,6 +736,8 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 poll_interval_s=20,
                 max_wait_s=max_wait_s,
                 lookback_minutes=lookback_minutes,
+                custom_filename=target_statement_fname,
+                min_email_time=min_email_time,
             )
 
         # ── Helper: open dropdown and select a filter ──────────────────────
@@ -845,8 +855,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             # 1. Immediate check: Did direct browser download event fire?
             if download_holder:
                 download = download_holder[0]
-                date_str = today.strftime('%Y-%m-%d')
-                fname = f"ola_statement_{date_str}.xlsx"
+                fname = target_statement_fname
                 save_path = os.path.join(DOWNLOAD_DIR, fname)
                 download.save_as(save_path)
                 _cleanup_temp_downloads(lgr)
@@ -878,8 +887,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             # 4. Check again for direct download after popup dismissal
             if download_holder:
                 download = download_holder[0]
-                date_str = today.strftime('%Y-%m-%d')
-                fname = f"ola_statement_{date_str}.xlsx"
+                fname = target_statement_fname
                 save_path = os.path.join(DOWNLOAD_DIR, fname)
                 download.save_as(save_path)
                 _cleanup_temp_downloads(lgr)
@@ -891,10 +899,12 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 lgr(f"[FETCH] [{attempt_label}] ✓ Found file via direct directory check after dismiss: {result}")
                 return result
 
+            attempt_start_dt = datetime.fromtimestamp(attempt_start_ts, tz=timezone.utc)
+
             # Helper for timed 3-burst email submission & IMAP polling (with 12:01 PM burst support)
             def _poll_with_timed_burst(burst_wait_s: int = 600, total_s: int = 2400) -> Optional[str]:
                 lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 1 submitted → Polling IMAP for up to {burst_wait_s // 60} minutes...")
-                res1 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst_wait_s)
+                res1 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst_wait_s, min_email_time=attempt_start_dt)
                 if res1:
                     lgr(f"[FETCH] [{attempt_label}] ✓ Statement captured on Burst 1 ({res1})")
                     return res1
@@ -912,7 +922,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
                 # Poll for up to 14 minutes before firing Burst 3 (at ~12:01 PM in Attempt 2)
                 burst3_wait_s = 840 # 14 minutes
                 lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 2 submitted → Polling IMAP for up to {burst3_wait_s // 60} minutes...")
-                res2 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst3_wait_s)
+                res2 = _poll_imap(lgr, lookback_minutes=45, max_wait_s=burst3_wait_s, min_email_time=attempt_start_dt)
                 if res2:
                     lgr(f"[FETCH] [{attempt_label}] ✓ Statement captured on Burst 2 ({res2})")
                     return res2
@@ -929,7 +939,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
                 rem_s = max(total_s - burst_wait_s - burst3_wait_s, 600)
                 lgr(f"[FETCH] [{attempt_label}] 🚀 Burst 3 submitted → Polling IMAP for remaining {rem_s // 60} minutes...")
-                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=rem_s)
+                return _poll_imap(lgr, lookback_minutes=45, max_wait_s=rem_s, min_email_time=attempt_start_dt)
 
             # 5. Check if genuine email export modal is visible
             if _handle_email_modal(pg, EMAIL, lgr):
@@ -941,8 +951,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             while time.time() - wait_start < 10:
                 if download_holder:
                     download = download_holder[0]
-                    date_str = today.strftime('%Y-%m-%d')
-                    fname = f"ola_statement_{date_str}.xlsx"
+                    fname = target_statement_fname
                     save_path = os.path.join(DOWNLOAD_DIR, fname)
                     download.save_as(save_path)
                     _cleanup_temp_downloads(lgr)
@@ -956,7 +965,7 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
 
             # 7. Final check: poll IMAP as fallback
             lgr(f"[FETCH] [{attempt_label}] Direct download not captured — polling IMAP fallback...")
-            return _poll_imap(lgr, lookback_minutes=45, max_wait_s=600)
+            return _poll_imap(lgr, lookback_minutes=45, max_wait_s=600, min_email_time=attempt_start_dt)
 
         # ════════════════════════════════════════════════════════════════════
         # DYNAMIC RETRY & PRESET SEQUENCE

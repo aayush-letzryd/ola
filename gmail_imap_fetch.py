@@ -70,6 +70,8 @@ def fetch_ola_xlsx_from_gmail(
     poll_interval_s: int = 60,
     max_wait_s: int = 2400, # 40 minutes (10:35 AM to 11:15 AM)
     lookback_minutes: int = 45,
+    custom_filename: Optional[str] = None,
+    min_email_time: Optional[datetime] = None,
 ) -> Optional[str]:
     """
     Connect to Gmail via IMAP and download the most recent Ola statement .xlsx
@@ -192,6 +194,15 @@ def _check_gmail_for_xlsx(
                         )
                         continue
                     logger(f"[GMAIL] ✓ Email is {email_age_minutes:.1f} min old — within {lookback_minutes} min window")
+
+                    if min_email_time:
+                        min_email_utc = min_email_time.replace(tzinfo=timezone.utc) if min_email_time.tzinfo is None else min_email_time
+                        if email_dt < min_email_utc:
+                            logger(
+                                f"[GMAIL] ⏩ Skipping — email was received ({email_dt.strftime('%H:%M:%S')}) "
+                                f"before request was initiated ({min_email_utc.strftime('%H:%M:%S')}): {subject[:50]}"
+                            )
+                            continue
                 except Exception as e:
                     logger(f"[GMAIL] ⚠️  Could not parse email date '{date_str}': {e} — skipping to be safe")
                     continue
@@ -220,7 +231,7 @@ def _check_gmail_for_xlsx(
                             continue  # skip empty/tiny files
 
                         today_str = datetime.now().strftime("%Y-%m-%d")
-                        safe_fname = f"ola_statement_{today_str}.xlsx"
+                        safe_fname = custom_filename if custom_filename else f"ola_statement_{today_str}.xlsx"
                         save_path = os.path.join(download_dir, safe_fname)
                         with open(save_path, "wb") as f:
                             f.write(payload)

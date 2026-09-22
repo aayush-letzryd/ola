@@ -324,6 +324,34 @@ def load_ola_statement_to_postgres(
         cur.close()
         conn.close()
 
+def load_baseline_crns_from_db(week_start: date, week_end: date) -> pd.DataFrame:
+    """Loads all CRN trips for the audited week from PostgreSQL ola_raw_crns table."""
+    conn = get_db_connection()
+    try:
+        query = """
+            SELECT 
+                crn AS "CRN",
+                stmt_date AS "Date",
+                vehicle_number AS "Car number",
+                completion_status AS "Completion Status",
+                customer_bill_raw AS "Customer Bill Raw",
+                operator_bill_raw AS "Operator Bill Raw",
+                cash_collected_by_driver_raw AS "Cash collected by driver Raw",
+                toll_parking_raw AS "Toll/ Parking Raw",
+                tds_raw AS "TDS Raw",
+                peak_pricing_raw AS "Peak Pricing Raw",
+                ride_earnings_raw AS "Ride earnings Raw",
+                ola_to_pay AS "Ola to Pay",
+                actual_kms_raw AS "Actual Kms Raw"
+            FROM ola_raw_crns
+            WHERE stmt_date >= %s AND stmt_date <= %s
+        """
+        df = pd.read_sql(query, conn, params=(week_start, week_end))
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    finally:
+        conn.close()
+
 # ---------------------------------------------------------------------------
 # Tuesday Audit Reconciliation Engine (Monday vs Tuesday Diff Generator)
 # ---------------------------------------------------------------------------
@@ -354,6 +382,24 @@ def run_tuesday_audit_reconciliation(
     df_tue_crns = pd.read_excel(tuesday_file_path, sheet_name=tue_crn_sheet)
     df_mon_crns.columns = [str(c).strip() for c in df_mon_crns.columns]
     df_tue_crns.columns = [str(c).strip() for c in df_tue_crns.columns]
+
+    # Verify date coverage of Monday baseline file
+    mon_dates = set()
+    date_col = next((c for c in df_mon_crns.columns if "date" in c.lower()), None)
+    if date_col:
+        mon_dates = set(_coerce_date(d) for d in df_mon_crns[date_col] if pd.notna(d))
+
+    audit_expected_days = (week_end - week_start).days + 1
+    if len(mon_dates) < min(5, audit_expected_days):
+        logger(f"[Audit Engine] ⚠️ Monday baseline file only covers {len(mon_dates)} days ({sorted(mon_dates)}) vs expected {audit_expected_days} days.")
+        logger(f"[Audit Engine] 🔄 Auto-recovering baseline trips from PostgreSQL 'ola_raw_crns' for week ({week_start} to {week_end})...")
+        try:
+            df_db_crns = load_baseline_crns_from_db(week_start, week_end)
+            if not df_db_crns.empty:
+                df_mon_crns = df_db_crns
+                logger(f"[Audit Engine] ✓ Successfully recovered {len(df_mon_crns):,} baseline trips from DB.")
+        except Exception as _dbe:
+            logger(f"[Audit Engine] Warning recovering DB baseline trips: {_dbe}")
 
     df_mon_crns["crn_clean"] = df_mon_crns["CRN"].astype(str).str.strip()
     df_tue_crns["crn_clean"] = df_tue_crns["CRN"].astype(str).str.strip()

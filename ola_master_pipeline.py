@@ -220,9 +220,13 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
     logger(f"Audit Target Window: {prior_monday} to {prior_sunday}")
 
     # 1. Check for Monday's Baseline Statement locally or from GCS
+    week_fnames = list(DOWNLOAD_DIR.glob(f"*{prior_monday.strftime('%Y-%m-%d')}_to_{prior_sunday.strftime('%Y-%m-%d')}*.xlsx"))
     mon_files = list(DOWNLOAD_DIR.glob(f"*{prior_monday.strftime('%Y-%m')}*.xlsx"))
     monday_file = None
-    if mon_files:
+    if week_fnames:
+        monday_file = str(max(week_fnames, key=os.path.getmtime))
+        logger(f"Found local Monday Full-Week Baseline Statement: {os.path.basename(monday_file)}")
+    elif mon_files:
         monday_file = str(max(mon_files, key=os.path.getmtime))
         logger(f"Found local Monday Baseline Statement: {os.path.basename(monday_file)}")
     else:
@@ -231,6 +235,7 @@ def run_tuesday_audit(force_engine: Optional[str] = None, logger=log):
         today = date.today()
         yesterday_monday = today - timedelta(days=1 if today.weekday() == 1 else today.weekday())
         candidate_blobs = [
+            f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{prior_monday.strftime('%Y-%m-%d')}_to_{prior_sunday.strftime('%Y-%m-%d')}.xlsx",
             f"statements/{yesterday_monday.year}/{yesterday_monday.strftime('%m')}/ola_statement_{yesterday_monday.strftime('%Y-%m-%d')}.xlsx",
             f"statements/{prior_monday.year}/{prior_monday.strftime('%m')}/ola_statement_{prior_monday.strftime('%Y-%m-%d')}.xlsx",
             f"statements/{prior_sunday.year}/{prior_sunday.strftime('%m')}/ola_statement_{prior_sunday.strftime('%Y-%m-%d')}.xlsx",
