@@ -29,7 +29,7 @@ gcloud run jobs update "${JOB_NAME}" \
   --memory=2Gi \
   --task-timeout=3600s \
   --max-retries=0 \
-  --set-env-vars="HEADLESS=true,TZ=Asia/Kolkata,GCS_BUCKET_NAME=letzryd-ola-raw-statements,DB_HOST=35.200.196.113,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres"
+  --update-env-vars="HEADLESS=true,TZ=Asia/Kolkata,GCS_BUCKET_NAME=letzryd-ola-raw-statements,DB_HOST=35.200.196.113,DB_PORT=5432,DB_NAME=postgres,DB_USER=postgres"
 
 echo "================================================================================"
 echo " 3. Setting Up Cloud Scheduler Triggers"
