@@ -105,7 +105,11 @@ def fetch_ola_xlsx_from_gmail(
     while time.time() < deadline:
         attempt += 1
         try:
-            saved = _check_gmail_for_xlsx(imap_user, imap_pass, download_dir, lookback_minutes, logger)
+            saved = _check_gmail_for_xlsx(
+                imap_user, imap_pass, download_dir, lookback_minutes, logger,
+                custom_filename=custom_filename,
+                min_email_time=min_email_time
+            )
             if saved:
                 return saved
         except Exception as e:
@@ -128,6 +132,8 @@ def _check_gmail_for_xlsx(
     download_dir: str,
     lookback_minutes: int,
     logger,
+    custom_filename: Optional[str] = None,
+    min_email_time: Optional[datetime] = None,
 ) -> Optional[str]:
     """
     Single IMAP connection attempt. Returns saved file path or None.
