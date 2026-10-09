@@ -320,6 +320,23 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
         to_date = yesterday
     logger(f"[FETCH] Target Date Window: {from_date.strftime('%a %d %b %Y')} → {to_date.strftime('%a %d %b %Y')}")
 
+    target_statement_fname = f"Samvreeddhi Mobility Private Limited_{from_date.strftime('%Y-%b-%d')}_{to_date.strftime('%Y-%b-%d')}.xlsx"
+    if _GMAIL_AVAILABLE:
+        from gmail_imap_fetch import fetch_ola_xlsx_from_gmail
+        logger(f"[FETCH] Pre-flight IMAP check for {target_statement_fname} (looking back 4 hours)...")
+        pre_flight_path = fetch_ola_xlsx_from_gmail(
+            download_dir=DOWNLOAD_DIR,
+            logger=logger,
+            poll_interval_s=5,
+            max_wait_s=10,
+            lookback_minutes=240,
+            custom_filename=target_statement_fname,
+            min_email_time=None
+        )
+        if pre_flight_path:
+            logger(f"[FETCH] ✓ Found target email in inbox BEFORE launching browser: {pre_flight_path}")
+            return pre_flight_path
+
     cleanup_chrome_locks()
     initial_otp, initial_date, _ = get_current_otp_from_sheet()
     logger(f"[FETCH] Baseline OTP in sheet: '{initial_otp}' (at {initial_date})")
@@ -400,10 +417,27 @@ def fetch_ola_statement(log_id: int = None, from_date: Optional[datetime] = None
             if not phone_input:
                 logger(f"[FETCH] Phone input not visible on attempt {login_attempt} (URL: {page.url}). Reloading login page...")
                 ss(page, f"no_phone_input_attempt_{login_attempt}", logger)
-                time.sleep(5)
-                continue
+                page.wait_for_timeout(3000)
+                try:
+                    page.reload(timeout=15000)
+                    page.wait_for_timeout(8000)
+                    # Try finding the input one more time after reload
+                    for sel in ["#identification", "input[type='tel']", "input[placeholder*='mobile']"]:
+                        loc = page.locator(sel).first
+                        if loc.is_visible():
+                            phone_input = sel
+                            break
+                except Exception as e:
+                    logger(f"[FETCH] Reload failed: {e}")
+                
+                if not phone_input:
+                    logger("[FETCH] Still no phone input after reload. Taking a longer break...")
+                    time.sleep(10)
+                    continue
 
             logger(f"[FETCH] Entering phone: {PHONE_NUMBER}")
+            page.mouse.move(100, 200)
+            page.wait_for_timeout(500)
             page.fill(phone_input, PHONE_NUMBER)
             page.wait_for_timeout(1000)
 
